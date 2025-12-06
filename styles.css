@@ -1,0 +1,19 @@
+/* Extracted styles from your original file */
+.room-box { transition: all 0.3s ease; }
+.room-box:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+.room-available { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+.room-occupied { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+.room-maintenance { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+.fade-in { animation: fadeIn 0.5s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.owner-only { display: none; }
+.owner-visible .owner-only { display: block; }
+.notification-badge { animation: pulse 2s infinite; }
+@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+.confirm-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.confirm-content { background-color: white; padding: 20px; border-radius: 8px; max-width: 400px; width: 90%; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); }
+
+/* small responsive helper */
+@media (max-width: 768px) {
+  .room-box { padding: 12px; }
+}
