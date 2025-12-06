@@ -1,5 +1,5 @@
-const API = 'https://YOUR-RENDER-URL/api';
-const socket = io('https://YOUR-RENDER-URL');
+const API = 'https://srinikamalnkb.onrender.com';
+const socket = io('https://srinikamalnkb.onrender.com');
 // script.js - Frontend logic rewritten to use API + Socket.IO while preserving original UI and behavior
 
 const API = location.origin + '/api';
