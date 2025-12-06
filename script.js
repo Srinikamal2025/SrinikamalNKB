@@ -1,267 +1,56 @@
-/************************************
- * HOTEL MANAGEMENT – FIXED FRONTEND
- * JWT Login + API + Socket.IO Ready
- ************************************/
+/* Cleaned script.js — JWT-only frontend for Render backend
+   Backend base: https://srinikamalnkb.onrender.com
+   Token stored in localStorage: authToken
+   Role stored in localStorage: userRole
+*/
 
-// ------------------- CONFIG --------------------
-const API = `${location.origin}/api`;   // Auto-detect correct Render URL
+// ========== CONFIG ==========
+const API_BASE = "https://srinikamalnkb.onrender.com";
+const API = API_BASE + "/api";
+const SOCKET_URL = API_BASE;
 
+// ========== AUTH HELPERS ==========
 function getToken() { return localStorage.getItem("authToken") || ""; }
-function setToken(t) { localStorage.setItem("authToken", t); }
-function removeToken() { localStorage.removeItem("authToken"); }
-
+function setToken(t) { if (t) localStorage.setItem("authToken", t); else localStorage.removeItem("authToken"); }
 function getRole() { return localStorage.getItem("userRole") || ""; }
-function setRole(r) { localStorage.setItem("userRole", r); }
+function setRole(r) { if (r) localStorage.setItem("userRole", r); else localStorage.removeItem("userRole"); }
 
-// Global Socket
-let socket = null;
-
-// Build auth header for all API calls
 function authHeader() {
-    return { "Authorization": "Bearer " + getToken(), "Content-Type": "application/json" };
+  const token = getToken();
+  return token ? { "Authorization": "Bearer " + token, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
 }
 
-// Unified Fetch Wrapper
-async function fetchWithAuth(url, opt = {}) {
-    opt.headers = { ...(opt.headers || {}), ...authHeader() };
-    let res = await fetch(url, opt);
-    if (res.status === 401 || res.status === 403) {
-        logout();
-        throw new Error("Unauthorized");
-    }
-    return res;
-}
-
-// ------------------------------------------------
-//                LOGIN FUNCTION
-// ------------------------------------------------
-document.getElementById("loginForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const username = document.getElementById("username").value.trim();
-    const password = document.getElementById("password").value.trim();
-
-    try {
-        const response = await fetch(`${API}/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, password })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            showNotification(data.error || "Invalid credentials", "error");
-            return;
-        }
-
-        // Save token
-        setToken(data.token);
-        setRole(data.role);
-
-        // Setup socket
-        connectSocket();
-
-        // Show dashboard
-        document.getElementById("loginScreen").classList.add("hidden");
-        document.getElementById("dashboardScreen").classList.remove("hidden");
-        document.getElementById("userRole").textContent = data.role;
-
-        if (data.role === "Owner") {
-            document.getElementById("dashboardScreen").classList.add("owner-visible");
-        }
-
-        // Load data after login
-        await loadInitialData();
-        showNotification("Login successful!", "success");
-
-    } catch (err) {
-        console.error(err);
-        showNotification("Server unreachable.", "error");
-    }
-});
-
-// ------------------------------------------------
-//                SOCKET CONNECTION
-// ------------------------------------------------
-function connectSocket() {
-    if (socket && socket.connected) socket.disconnect();
-
-    socket = io(location.origin, {
-        auth: { token: getToken() }
-    });
-
-    socket.on("connect", () => console.log("Socket connected"));
-
-    socket.on("roomsUpdated", (data) => {
-        rooms = data;
-        saveToLocalFallback();
-        renderRooms();
-        updateStats();
-        updateDuePaymentsTable();
-        updateTotalDue();
-    });
-
-    socket.on("paymentsUpdated", (data) => {
-        payments = data;
-        saveToLocalFallback();
-        updatePaymentCounters();
-    });
-
-    socket.on("customersUpdated", (data) => {
-        customersDB = data;
-        saveToLocalFallback();
-    });
-
-    socket.on("notificationsUpdated", (data) => {
-        notifications = data;
-        saveToLocalFallback();
-        updateNotificationBadge();
-        loadNotifications();
-    });
-}
-
-// ------------------------------------------------
-//              LOGOUT FUNCTION
-// ------------------------------------------------
-function logout() {
-    removeToken();
-    localStorage.removeItem("userRole");
-
-    if (socket) socket.disconnect();
-
-    document.getElementById("dashboardScreen").classList.add("hidden");
-    document.getElementById("loginScreen").classList.remove("hidden");
-}
-
-// ------------------------------------------------
-//              DATA LOADING (API)
-// ------------------------------------------------
-
-let rooms = [];
-let payments = [];
-let customersDB = [];
-let notifications = [];
-
-function saveToLocalFallback() {
-    localStorage.setItem("hotelRooms", JSON.stringify(rooms));
-    localStorage.setItem("hotelPayments", JSON.stringify(payments));
-    localStorage.setItem("hotelCustomersDB", JSON.stringify(customersDB));
-    localStorage.setItem("hotelNotifications", JSON.stringify(notifications));
-}
-
-async function loadInitialData() {
-    try {
-        let r = await fetchWithAuth(`${API}/rooms`);
-        rooms = await r.json();
-
-        let p = await fetchWithAuth(`${API}/payments`);
-        payments = await p.json();
-
-        let c = await fetchWithAuth(`${API}/customers`);
-        customersDB = await c.json();
-
-        let n = await fetchWithAuth(`${API}/notifications`);
-        notifications = await n.json();
-
-        renderRooms();
-        updateStats();
-        updatePaymentCounters();
-        updateDuePaymentsTable();
-        updateTotalDue();
-        updateNotificationBadge();
-        loadNotifications();
-    } catch (err) {
-        console.error("Initial data load failed", err);
-    }
-}
-
-// ------------------------------------------------
-//      REST OF YOUR ORIGINAL FUNCTIONS BELOW
-// ------------------------------------------------
-const API = 'https://srinikamalnkb.onrender.com';
-const socket = io('https://srinikamalnkb.onrender.com');
-// script.js - Frontend logic rewritten to use API + Socket.IO while preserving original UI and behavior
-
-const API = location.origin + '/api';
-const socket = (typeof io !== 'undefined') ? io() : null;
-
-// User credentials (kept for demo; move to secure auth in production)
-const users = { owner: { password: 'msn2021$', role: 'Owner' }, manager: { password: 'manager2025', role: 'Manager' } };
-let currentUser = null;
-let rooms = [];
-let payments = { cash: 0, upi: 0, dayRevenue: 0, monthRevenue: 0, lastUpdated: null };
-let notifications = [];
-let customersDB = [];
-
-// ---------- Initialization & Data Loading ----------
-async function loadInitialData() {
-  try {
-    const [roomsRes, paymentsRes, customersRes, notifsRes] = await Promise.all([
-      fetch(`${API}/rooms`),
-      fetch(`${API}/payments`),
-      fetch(`${API}/customers`),
-      fetch(`${API}/notifications`)
-    ]);
-
-    if (!roomsRes.ok || !paymentsRes.ok) throw new Error('API not available');
-
-    rooms = await roomsRes.json();
-    payments = await paymentsRes.json();
-    customersDB = await customersRes.json();
-    notifications = await notifsRes.json();
-
-    saveToLocalFallback(); // update local fallback copies
-    applyDataToUI();
-  } catch (e) {
-    console.warn('API load failed, using localStorage fallback.', e);
-    rooms = JSON.parse(localStorage.getItem('hotelRooms')) || generateDefaultRooms();
-    payments = JSON.parse(localStorage.getItem('hotelPayments')) || payments;
-    customersDB = JSON.parse(localStorage.getItem('hotelCustomersDB')) || [];
-    notifications = JSON.parse(localStorage.getItem('hotelNotifications')) || [];
-    applyDataToUI();
+async function fetchWithAuth(url, opts = {}) {
+  opts.headers = { ...(opts.headers || {}), ...authHeader() };
+  const res = await fetch(url, opts);
+  if (res.status === 401 || res.status === 403) {
+    // token invalid or expired — force logout
+    logout(true);
+    throw new Error("Unauthorized");
   }
+  return res;
 }
 
-function saveToLocalFallback() {
-  localStorage.setItem('hotelRooms', JSON.stringify(rooms));
-  localStorage.setItem('hotelPayments', JSON.stringify(payments));
-  localStorage.setItem('hotelCustomersDB', JSON.stringify(customersDB));
-  localStorage.setItem('hotelNotifications', JSON.stringify(notifications));
-}
+// ========== SOCKET.IO ==========
+let socket = null;
+function connectSocket() {
+  try {
+    if (socket && socket.connected) socket.disconnect();
+  } catch(e){}
 
-function generateDefaultRooms() {
-  const arr = [];
-  for (let i = 1; i <= 29; i++) arr.push({
-    id: i,
-    status: 'available',
-    price: 1000 + Math.floor(Math.random() * 2000),
-    customerName: '',
-    numberOfPersons: 1,
-    aadharNumber: '',
-    phoneNumber: '',
-    checkinTime: '',
-    checkoutTime: '',
-    paymentMode: '',
-    totalAmount: 0,
-    paidAmount: 0,
-    dueAmount: 0
+  const token = getToken();
+  // pass token in auth payload
+  socket = io(SOCKET_URL, { auth: { token } });
+
+  socket.on("connect", () => {
+    console.log("Socket connected", socket.id);
   });
-  localStorage.setItem('hotelRooms', JSON.stringify(arr));
-  return arr;
-}
 
-function applyDataToUI() {
-  renderRooms();
-  updateStats();
-  updatePaymentCounters();
-  updateDuePaymentsTable();
-  updateTotalDue();
-  updateNotificationBadge();
-}
+  socket.on("disconnect", (reason) => {
+    console.log("Socket disconnected", reason);
+  });
 
-// ---------- Socket Listeners (Realtime updates) ----------
-if (socket) {
-  socket.on('roomsUpdated', updatedRooms => {
+  socket.on("roomsUpdated", (updatedRooms) => {
     if (Array.isArray(updatedRooms)) {
       rooms = updatedRooms;
       saveToLocalFallback();
@@ -272,24 +61,24 @@ if (socket) {
     }
   });
 
-  socket.on('paymentsUpdated', updatedPayments => {
-    if (updatedPayments) {
-      payments = updatedPayments;
+  socket.on("paymentsUpdated", (paymentsData) => {
+    if (paymentsData) {
+      payments = paymentsData;
       saveToLocalFallback();
       updatePaymentCounters();
     }
   });
 
-  socket.on('customersUpdated', updatedCustomers => {
-    if (Array.isArray(updatedCustomers)) {
-      customersDB = updatedCustomers;
+  socket.on("customersUpdated", (cust) => {
+    if (Array.isArray(cust)) {
+      customersDB = cust;
       saveToLocalFallback();
     }
   });
 
-  socket.on('notificationsUpdated', updatedNotifications => {
-    if (Array.isArray(updatedNotifications)) {
-      notifications = updatedNotifications;
+  socket.on("notificationsUpdated", (notifs) => {
+    if (Array.isArray(notifs)) {
+      notifications = notifs;
       saveToLocalFallback();
       updateNotificationBadge();
       loadNotifications();
@@ -297,122 +86,170 @@ if (socket) {
   });
 }
 
-// ---------- Auth ----------
-document.getElementById('loginForm').addEventListener('submit', function(e) {
+// ========== LOCAL FALLBACK & DATA ==========
+const defaultPayments = { cash: 0, upi: 0, dayRevenue: 0, monthRevenue: 0 };
+let rooms = JSON.parse(localStorage.getItem('hotelRooms')) || [];
+let payments = JSON.parse(localStorage.getItem('hotelPayments')) || defaultPayments;
+let customersDB = JSON.parse(localStorage.getItem('hotelCustomersDB')) || [];
+let notifications = JSON.parse(localStorage.getItem('hotelNotifications')) || [];
+
+function saveToLocalFallback() {
+  try {
+    localStorage.setItem('hotelRooms', JSON.stringify(rooms));
+    localStorage.setItem('hotelPayments', JSON.stringify(payments));
+    localStorage.setItem('hotelCustomersDB', JSON.stringify(customersDB));
+    localStorage.setItem('hotelNotifications', JSON.stringify(notifications));
+  } catch (e) {
+    console.warn("localStorage save failed", e);
+  }
+}
+
+function generateDefaultRooms() {
+  const arr = [];
+  for (let i = 1; i <= 29; i++) {
+    arr.push({
+      id: i, status: 'available', price: 1500,
+      customerName: '', numberOfPersons: 1, aadharNumber: '', phoneNumber: '',
+      checkinTime: '', checkoutTime: '', paymentMode: '', totalAmount: 0, paidAmount: 0, dueAmount: 0
+    });
+  }
+  rooms = arr;
+  saveToLocalFallback();
+  return arr;
+}
+
+// ========== LOGIN FLOW ==========
+document.getElementById('loginForm').addEventListener('submit', async function (e) {
   e.preventDefault();
-  const username = document.getElementById('username').value;
-  const password = document.getElementById('password').value;
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value.trim();
+  if (!username || !password) { showNotification("Enter username and password", "error"); return; }
 
-  if (users[username] && users[username].password === password) {
-    currentUser = { username, role: users[username].role };
-    document.getElementById('userRole').textContent = currentUser.role;
-    document.getElementById('loginScreen').classList.add('hidden');
-    document.getElementById('dashboardScreen').classList.remove('hidden');
+  try {
+    const res = await fetch(`${API}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
 
-    if (currentUser.role === 'Owner') {
-      document.getElementById('dashboardScreen').classList.add('owner-visible');
-      updateNotificationBadge();
-      updateDuePaymentsTable();
-      updateTotalDue();
-      if (notifications.length > 0) showNotification(`You have ${notifications.length} new notification(s)`, 'success');
+    const data = await res.json();
+    if (!res.ok) {
+      showNotification(data.error || "Login failed", "error");
+      return;
     }
 
-    // ensure data is loaded for the dashboard
-    loadInitialData();
-  } else {
-    showNotification('Invalid credentials!', 'error');
+    setToken(data.token);
+    setRole(data.role || "");
+    connectSocket();
+
+    // Update UI
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('dashboardScreen').classList.remove('hidden');
+    if (data.role === 'Owner') document.getElementById('dashboardScreen').classList.add('owner-visible');
+    document.getElementById('userRole').textContent = data.role || '';
+
+    // Load data
+    await loadInitialData();
+    showNotification("Login successful", "success");
+  } catch (err) {
+    console.error("Login error", err);
+    showNotification("Server unreachable", "error");
   }
 });
 
-function logout() {
-  currentUser = null;
-  document.getElementById('loginScreen').classList.remove('hidden');
-  document.getElementById('dashboardScreen').classList.add('hidden');
-  document.getElementById('dashboardScreen').classList.remove('owner-visible');
-  document.getElementById('loginForm').reset();
+// Auto-login if token present
+if (getToken()) {
+  // Show dashboard and connect socket; we'll load data after verifying token via API calls
+  connectSocket();
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('dashboardScreen').classList.remove('hidden');
+  const role = getRole();
+  if (role === 'Owner') document.getElementById('dashboardScreen').classList.add('owner-visible');
+  document.getElementById('userRole').textContent = role;
+  loadInitialData().catch(e => console.warn("Initial load failed", e));
 }
 
-// ---------- Customer DB helpers ----------
-function findCustomerByAadhar(aadhar) {
-  return customersDB.find(customer => customer.aadhar === aadhar);
-}
-
-function addCustomer(customer) {
-  customer.id = Date.now().toString(36) + Math.random().toString(36).substr(2);
-  customer.createdAt = new Date().toISOString();
-  customer.history = [];
-  customersDB.push(customer);
-  saveCustomersToServer();
-  saveToLocalFallback();
-  return customer;
-}
-
-function updateCustomerHistory(aadhar, bookingInfo) {
-  const customerIndex = customersDB.findIndex(c => c.aadhar === aadhar);
-  if (customerIndex !== -1) {
-    customersDB[customerIndex].history = customersDB[customerIndex].history || [];
-    customersDB[customerIndex].history.push(bookingInfo);
-    saveCustomersToServer();
-    saveToLocalFallback();
+// ========== DATA LOAD ==========
+async function loadInitialData() {
+  // Rooms
+  try {
+    const r = await fetchWithAuth(`${API}/rooms`);
+    if (r.ok) rooms = await r.json();
+    else rooms = rooms.length ? rooms : generateDefaultRooms();
+  } catch (e) {
+    console.warn("rooms API failed, using local", e);
+    if (!rooms.length) generateDefaultRooms();
   }
+
+  // Payments
+  try {
+    const p = await fetchWithAuth(`${API}/payments`);
+    if (p.ok) payments = await p.json();
+  } catch (e) { console.warn("payments API failed:", e); }
+
+  // Customers
+  try {
+    const c = await fetchWithAuth(`${API}/customers`);
+    if (c.ok) customersDB = await c.json();
+  } catch (e) { console.warn("customers API failed:", e); }
+
+  // Notifications
+  try {
+    const n = await fetchWithAuth(`${API}/notifications`);
+    if (n.ok) notifications = await n.json();
+  } catch (e) { console.warn("notifications API failed:", e); }
+
+  saveToLocalFallback();
+  applyDataToUI();
 }
 
-async function saveCustomersToServer() {
-  // Currently server has no bulk save endpoint for customers; customers are created via room updates.
-  // Keep local fallback only.
-  localStorage.setItem('hotelCustomersDB', JSON.stringify(customersDB));
+function applyDataToUI() {
+  renderRooms();
+  updateStats();
+  updatePaymentCounters();
+  updateDuePaymentsTable();
+  updateTotalDue();
+  updateNotificationBadge();
+  loadNotifications();
 }
 
-// ---------- Render Rooms ----------
+// ========== UI: Render Rooms & Stats ==========
 function renderRooms() {
   const roomGrid = document.getElementById('roomGrid');
   if (!roomGrid) return;
   roomGrid.innerHTML = '';
-
   rooms.forEach(room => {
-    const roomBox = document.createElement('div');
-    roomBox.className = `room-box rounded-lg p-4 text-white cursor-pointer ${getRoomClass(room.status)}`;
-    roomBox.onclick = () => openRoomModal(room.id);
-
-    let customerInfo = '';
-    if (room.status === 'occupied' && room.customerName) {
-      customerInfo = `<p class="text-xs mt-1 truncate">${room.customerName}</p>`;
-      if (room.numberOfPersons) {
-        customerInfo += `<p class="text-xs mt-1">${room.numberOfPersons} ${room.numberOfPersons > 1 ? 'persons' : 'person'}</p>`;
-      }
-      if (room.dueAmount > 0) {
-        customerInfo += `<p class="text-xs mt-1 font-bold">Due: ₹${room.dueAmount}</p>`;
-      }
-    }
-
-    roomBox.innerHTML = `
+    const box = document.createElement('div');
+    box.className = `room-box rounded-lg p-4 text-white cursor-pointer ${getRoomClass(room.status)}`;
+    box.onclick = () => openRoomModal(room.id);
+    const customerInfo = (room.status === 'occupied' && room.customerName) ?
+      `<p class="text-xs mt-1 truncate">${escapeHtml(room.customerName)}</p>
+       <p class="text-xs mt-1">${room.numberOfPersons} ${room.numberOfPersons > 1 ? 'persons' : 'person'}</p>
+       ${room.dueAmount > 0 ? `<p class="text-xs mt-1 font-bold">Due: ₹${room.dueAmount}</p>` : ''}`
+      : '';
+    box.innerHTML = `
       <div class="text-center">
         <i class="fas fa-bed text-2xl mb-2"></i>
         <p class="font-bold">Room ${room.id}</p>
-        <p class="text-xs mt-1 capitalize">${room.status}</p>
+        <p class="text-xs mt-1 capitalize">${escapeHtml(room.status)}</p>
         <p class="text-xs mt-1">₹${room.price}/day</p>
         ${customerInfo}
-      </div>
-    `;
-    roomGrid.appendChild(roomBox);
+      </div>`;
+    roomGrid.appendChild(box);
   });
 }
 
 function getRoomClass(status) {
-  switch(status) {
-    case 'available': return 'room-available';
-    case 'occupied': return 'room-occupied';
-    case 'maintenance': return 'room-maintenance';
-    default: return 'room-available';
-  }
+  if (status === 'available') return 'room-available';
+  if (status === 'occupied') return 'room-occupied';
+  if (status === 'maintenance') return 'room-maintenance';
+  return 'room-available';
 }
 
-// ---------- Stats & Payments UI ----------
 function updateStats() {
   const available = rooms.filter(r => r.status === 'available').length;
   const occupied = rooms.filter(r => r.status === 'occupied').length;
   const maintenance = rooms.filter(r => r.status === 'maintenance').length;
-
   const elAvailable = document.getElementById('availableCount');
   const elOccupied = document.getElementById('occupiedCount');
   const elMaintenance = document.getElementById('maintenanceCount');
@@ -422,216 +259,50 @@ function updateStats() {
 }
 
 function updatePaymentCounters() {
-  const cashCounter = document.getElementById('cashCounter');
-  const upiCounter = document.getElementById('upiCounter');
-  const dayRevenue = document.getElementById('dayRevenue');
-  const monthRevenue = document.getElementById('monthRevenue');
-  
-  if (cashCounter) cashCounter.textContent = `₹${payments.cash || 0}`;
-  if (upiCounter) upiCounter.textContent = `₹${payments.upi || 0}`;
-  if (dayRevenue) dayRevenue.textContent = `₹${payments.dayRevenue || 0}`;
-  if (monthRevenue) monthRevenue.textContent = `₹${payments.monthRevenue || 0}`;
+  const cashEl = document.getElementById('cashCounter');
+  const upiEl = document.getElementById('upiCounter');
+  const dayEl = document.getElementById('dayRevenue');
+  const monthEl = document.getElementById('monthRevenue');
+  if (cashEl) cashEl.textContent = `₹${payments.cash || 0}`;
+  if (upiEl) upiEl.textContent = `₹${payments.upi || 0}`;
+  if (dayEl) dayEl.textContent = `₹${payments.dayRevenue || 0}`;
+  if (monthEl) monthEl.textContent = `₹${payments.monthRevenue || 0}`;
 }
 
 function updateTotalDue() {
-  if (currentUser && currentUser.role === 'Owner') {
-    const totalDue = rooms.reduce((sum, room) => sum + (room.dueAmount || 0), 0);
-    const totalDueElement = document.getElementById('totalDue');
-    if (totalDueElement) totalDueElement.textContent = `₹${totalDue}`;
-  }
+  if (getRole() !== 'Owner') return;
+  const totalDue = rooms.reduce((s, r) => s + (Number(r.dueAmount) || 0), 0);
+  const el = document.getElementById('totalDue');
+  if (el) el.textContent = `₹${totalDue}`;
 }
 
-// ---------- Due Payments Table ----------
 function updateDuePaymentsTable() {
-  if (currentUser && currentUser.role !== 'Owner') return;
-  const duePaymentsTable = document.getElementById('duePaymentsTable');
-  const noDuePayments = document.getElementById('noDuePayments');
-  if (!duePaymentsTable || !noDuePayments) return;
-
-  duePaymentsTable.innerHTML = '';
-  const dueRooms = rooms.filter(room => room.status === 'occupied' && room.dueAmount > 0);
-
-  if (dueRooms.length === 0) {
-    noDuePayments.style.display = 'block';
+  if (getRole() !== 'Owner') return;
+  const table = document.getElementById('duePaymentsTable');
+  const noDue = document.getElementById('noDuePayments');
+  if (!table || !noDue) return;
+  table.innerHTML = '';
+  const dueRooms = rooms.filter(r => r.status === 'occupied' && (Number(r.dueAmount) || 0) > 0);
+  if (!dueRooms.length) {
+    noDue.style.display = 'block';
     return;
   }
-  noDuePayments.style.display = 'none';
-
+  noDue.style.display = 'none';
   dueRooms.forEach(room => {
     const row = document.createElement('tr');
     row.innerHTML = `
-      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${room.id}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${room.customerName || '-'}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₹${room.totalAmount || 0}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₹${room.paidAmount || 0}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">₹${room.dueAmount || 0}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-        <button onclick="openPaymentModal(${room.id})" class="text-blue-600 hover:text-blue-900">Update Payment</button>
-      </td>
+      <td class="px-6 py-4">${room.id}</td>
+      <td class="px-6 py-4">${escapeHtml(room.customerName || '-')}</td>
+      <td class="px-6 py-4">₹${room.totalAmount || 0}</td>
+      <td class="px-6 py-4">₹${room.paidAmount || 0}</td>
+      <td class="px-6 py-4 text-red-600">₹${room.dueAmount || 0}</td>
+      <td class="px-6 py-4"><button onclick="openPaymentModal(${room.id})" class="text-blue-600">Update Payment</button></td>
     `;
-    duePaymentsTable.appendChild(row);
+    table.appendChild(row);
   });
 }
 
-// ---------- Notifications ----------
-function clearAllNotifications() {
-  if (currentUser && currentUser.role !== 'Owner') {
-    showNotification('Only owner can clear notifications!', 'error');
-    return;
-  }
-  showConfirmModal('Are you sure you want to clear all notifications?', async () => {
-    // request server to clear notifications if possible
-    try {
-      const res = await fetch(`${API}/notifications`, { method: 'DELETE' });
-      if (res.ok) {
-        notifications = [];
-        saveToLocalFallback();
-        updateNotificationBadge();
-        loadNotifications();
-        showNotification('All notifications cleared', 'success');
-      } else {
-        throw new Error('server error');
-      }
-    } catch (e) {
-      // fallback local
-      notifications = [];
-      localStorage.setItem('hotelNotifications', JSON.stringify(notifications));
-      updateNotificationBadge();
-      loadNotifications();
-      showNotification('All notifications cleared (local)', 'success');
-    }
-  });
-}
-
-function showConfirmModal(message, onConfirm) {
-  const confirmModal = document.getElementById('confirmModal');
-  const confirmMessage = document.getElementById('confirmMessage');
-  const confirmYes = document.getElementById('confirmYes');
-  const confirmNo = document.getElementById('confirmNo');
-
-  confirmMessage.textContent = message;
-  confirmModal.classList.remove('hidden');
-
-  // replace listeners
-  const newYes = confirmYes.cloneNode(true);
-  confirmYes.parentNode.replaceChild(newYes, confirmYes);
-  const newNo = confirmNo.cloneNode(true);
-  confirmNo.parentNode.replaceChild(newNo, confirmNo);
-
-  newYes.addEventListener('click', () => {
-    onConfirm && onConfirm();
-    confirmModal.classList.add('hidden');
-  });
-  newNo.addEventListener('click', () => confirmModal.classList.add('hidden'));
-}
-
-function toggleNotifications() {
-  const dropdown = document.getElementById('notificationDropdown');
-  if (!dropdown) return;
-  dropdown.classList.toggle('hidden');
-  if (!dropdown.classList.contains('hidden')) loadNotifications();
-}
-
-function loadNotifications() {
-  const notificationList = document.getElementById('notificationList');
-  if (!notificationList) return;
-  notificationList.innerHTML = '';
-  if (!notifications || notifications.length === 0) {
-    notificationList.innerHTML = '<p class="p-4 text-gray-500 text-center">No notifications</p>';
-    return;
-  }
-  notifications.forEach(n => {
-    const item = document.createElement('div');
-    item.className = 'p-4 border-b hover:bg-gray-50';
-    item.innerHTML = `<p class="text-gray-800">${n.message}</p><p class="text-xs text-gray-500 mt-2">${new Date(n.timestamp).toLocaleString()}</p>`;
-    notificationList.appendChild(item);
-  });
-}
-
-function updateNotificationBadge() {
-  const badge = document.getElementById('notificationBadge');
-  if (!badge) return;
-  if (notifications.length > 0) {
-    badge.textContent = notifications.length;
-    badge.classList.remove('hidden');
-  } else {
-    badge.classList.add('hidden');
-  }
-}
-
-function addNotification(message) {
-  const n = { message, timestamp: new Date().toISOString() };
-  notifications.push(n);
-  localStorage.setItem('hotelNotifications', JSON.stringify(notifications));
-
-  // notify server by creating a payment or via a custom endpoint (we'll use payments endpoint with message)
-  // This matches server.js earlier where POST /api/payments accepted message to push notifications.
-  (async () => {
-    try {
-      await fetch(`${API}/payments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: 0, mode: '', message })
-      });
-    } catch (e) {
-      // ignore; local fallback already saved
-    }
-  })();
-
-  updateNotificationBadge();
-}
-
-// ---------- Room modal & editing ----------
-document.getElementById('aadharNumber').addEventListener('input', function(e) {
-  const aadharNumber = e.target.value;
-  const customerRecognition = document.getElementById('customerRecognition');
-  if (aadharNumber.length >= 4) {
-    const customer = findCustomerByAadhar(aadharNumber);
-    if (customer) {
-      customerRecognition.innerHTML = `<i class="fas fa-check-circle text-green-600 mr-2"></i>Customer found: <strong>${customer.name}</strong>`;
-      document.getElementById('customerName').value = customer.name;
-      document.getElementById('phoneNumber').value = customer.phoneNumber || '';
-      showCustomerHistory(customer);
-    } else {
-      customerRecognition.innerHTML = `<i class="fas fa-search text-blue-600 mr-2"></i>Searching for customer...`;
-      document.getElementById('customerHistorySection').classList.add('hidden');
-    }
-  } else {
-    customerRecognition.innerHTML = `<i class="fas fa-info-circle text-blue-600 mr-2"></i>Enter Aadhar number to check if customer exists in our database`;
-    document.getElementById('customerHistorySection').classList.add('hidden');
-  }
-});
-
-function showCustomerHistory(customer) {
-  const historySection = document.getElementById('customerHistorySection');
-  const historyTable = document.getElementById('customerHistoryTable');
-  const noHistory = document.getElementById('noCustomerHistory');
-
-  historySection.classList.remove('hidden');
-  historyTable.innerHTML = '';
-
-  if (customer.history && customer.history.length > 0) {
-    noHistory.classList.add('hidden');
-    customer.history.forEach(booking => {
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">${booking.roomId}</td>
-        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">${new Date(booking.checkinTime).toLocaleDateString()}</td>
-        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">${new Date(booking.checkoutTime).toLocaleDateString()}</td>
-        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">₹${booking.totalAmount}</td>
-        <td class="px-4 py-2 whitespace-nowrap text-sm">
-          <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${booking.dueAmount > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}">
-            ${booking.dueAmount > 0 ? 'Due' : 'Paid'}
-          </span>
-        </td>
-      `;
-      historyTable.appendChild(row);
-    });
-  } else {
-    noHistory.classList.remove('hidden');
-  }
-}
-
+// ========== ROOM MODAL & EDIT ==========
 function openRoomModal(roomId) {
   const room = rooms.find(r => r.id === roomId);
   if (!room) return;
@@ -647,44 +318,31 @@ function openRoomModal(roomId) {
   document.getElementById('paymentMode').value = room.paymentMode || '';
   document.getElementById('paidAmount').value = room.paidAmount || 0;
 
-  if (currentUser && currentUser.role === 'Manager') {
-    document.getElementById('roomPrice').setAttribute('readonly', true);
-  } else {
-    document.getElementById('roomPrice').removeAttribute('readonly');
-  }
+  if (room.status !== 'occupied') document.getElementById('customerDetails').style.display = 'none';
+  else document.getElementById('customerDetails').style.display = 'block';
 
-  if (room.status !== 'occupied') {
-    document.getElementById('customerDetails').style.display = 'none';
-  } else {
-    document.getElementById('customerDetails').style.display = 'block';
-    calculateTotalAmount();
-    if (room.aadharNumber) {
-      const cust = findCustomerByAadhar(room.aadharNumber);
-      if (cust) showCustomerHistory(cust);
-    }
-  }
+  // Role based readonly
+  if (getRole() === 'Manager') document.getElementById('roomPrice').setAttribute('readonly', true);
+  else document.getElementById('roomPrice').removeAttribute('readonly');
 
+  calculateTotalAmount();
   document.getElementById('roomModal').classList.remove('hidden');
 }
 
-function closeModal() {
-  document.getElementById('roomModal').classList.add('hidden');
-}
+function closeModal() { document.getElementById('roomModal').classList.add('hidden'); }
 
 function calculateTotalAmount() {
   const roomPrice = parseInt(document.getElementById('roomPrice').value) || 0;
-  const checkinTimeVal = document.getElementById('checkinTime').value;
-  const checkoutTimeVal = document.getElementById('checkoutTime').value;
-  const checkinTime = checkinTimeVal ? new Date(checkinTimeVal) : null;
-  const checkoutTime = checkoutTimeVal ? new Date(checkoutTimeVal) : null;
-
-  if (checkinTime && checkoutTime && checkinTime < checkoutTime) {
-    const days = Math.max(1, Math.ceil((checkoutTime - checkinTime) / (1000 * 60 * 60 * 24)));
-    const totalAmount = roomPrice * days;
-    document.getElementById('totalAmount').textContent = `₹${totalAmount}`;
-    const paidAmount = parseInt(document.getElementById('paidAmount').value) || 0;
-    const dueAmount = Math.max(0, totalAmount - paidAmount);
-    document.getElementById('dueAmount').textContent = `₹${dueAmount}`;
+  const checkinVal = document.getElementById('checkinTime').value;
+  const checkoutVal = document.getElementById('checkoutTime').value;
+  const ci = checkinVal ? new Date(checkinVal) : null;
+  const co = checkoutVal ? new Date(checkoutVal) : null;
+  if (ci && co && ci < co) {
+    const days = Math.max(1, Math.ceil((co - ci) / (1000 * 60 * 60 * 24)));
+    const total = roomPrice * days;
+    document.getElementById('totalAmount').textContent = `₹${total}`;
+    const paid = parseInt(document.getElementById('paidAmount').value) || 0;
+    document.getElementById('dueAmount').textContent = `₹${Math.max(0, total - paid)}`;
   } else {
     document.getElementById('totalAmount').textContent = '₹0';
     document.getElementById('dueAmount').textContent = '₹0';
@@ -696,123 +354,66 @@ document.getElementById('roomPrice').addEventListener('input', calculateTotalAmo
 document.getElementById('checkinTime').addEventListener('change', calculateTotalAmount);
 document.getElementById('checkoutTime').addEventListener('change', calculateTotalAmount);
 
-// Room form submission -> try to persist to server, else fallback to local
-document.getElementById('roomForm').addEventListener('submit', async function(e) {
+// Room form submit handler
+document.getElementById('roomForm').addEventListener('submit', async function (e) {
   e.preventDefault();
-  const roomId = parseInt(document.getElementById('roomId').value);
+  const roomId = Number(document.getElementById('roomId').value);
   const idx = rooms.findIndex(r => r.id === roomId);
   if (idx === -1) return;
 
-  const oldStatus = rooms[idx].status;
   const newStatus = document.getElementById('roomStatus').value;
-  const newPaymentMode = document.getElementById('paymentMode').value;
   const roomPrice = parseInt(document.getElementById('roomPrice').value) || 0;
-
-  let totalAmount = 0;
-  if (newStatus === 'occupied') {
-    const checkinTimeVal = document.getElementById('checkinTime').value;
-    const checkoutTimeVal = document.getElementById('checkoutTime').value;
-    if (checkinTimeVal && checkoutTimeVal) {
-      const checkinTime = new Date(checkinTimeVal);
-      const checkoutTime = new Date(checkoutTimeVal);
-      if (checkinTime < checkoutTime) {
-        const days = Math.max(1, Math.ceil((checkoutTime - checkinTime) / (1000 * 60 * 60 * 24)));
-        totalAmount = roomPrice * days;
-      }
-    }
-  }
-
-  const paidAmount = parseInt(document.getElementById('paidAmount').value) || 0;
-  const dueAmount = Math.max(0, totalAmount - paidAmount);
-
   const customerName = document.getElementById('customerName').value;
-  const aadharNumber = document.getElementById('aadharNumber').value;
   const numberOfPersons = parseInt(document.getElementById('numberOfPersons').value) || 1;
+  const aadharNumber = document.getElementById('aadharNumber').value;
   const phoneNumber = document.getElementById('phoneNumber').value;
   const checkinTime = document.getElementById('checkinTime').value;
   const checkoutTime = document.getElementById('checkoutTime').value;
+  const paidAmount = parseInt(document.getElementById('paidAmount').value) || 0;
 
-  // Create or update customer locally
-  let customer = aadharNumber ? findCustomerByAadhar(aadharNumber) : null;
-  if (!customer && aadharNumber) {
-    customer = addCustomer({ name: customerName, aadhar: aadharNumber, phoneNumber });
+  let totalAmount = 0;
+  if (newStatus === 'occupied' && checkinTime && checkoutTime) {
+    const ci = new Date(checkinTime), co = new Date(checkoutTime);
+    if (ci < co) {
+      const days = Math.max(1, Math.ceil((co - ci) / (1000*60*60*24)));
+      totalAmount = roomPrice * days;
+    }
   }
 
-  // Update room object
+  const dueAmount = Math.max(0, totalAmount - paidAmount);
+
   const updatedRoom = {
     ...rooms[idx],
     status: newStatus,
     price: roomPrice,
-    customerName,
-    numberOfPersons,
-    aadharNumber,
-    phoneNumber,
-    checkinTime,
-    checkoutTime,
-    paymentMode: newPaymentMode,
-    totalAmount,
-    paidAmount,
-    dueAmount
+    customerName, numberOfPersons, aadharNumber, phoneNumber,
+    checkinTime, checkoutTime,
+    totalAmount, paidAmount, dueAmount,
+    paymentMode: document.getElementById('paymentMode').value || ''
   };
 
-  // If room becomes occupied, add history
-  if (newStatus === 'occupied' && aadharNumber) {
-    updateCustomerHistory(aadharNumber, {
-      roomId,
-      checkinTime,
-      checkoutTime,
-      totalAmount,
-      paidAmount,
-      dueAmount
-    });
+  // Update customer DB locally
+  if (aadharNumber) {
+    let cust = customersDB.find(c => c.aadhar === aadharNumber);
+    if (!cust) {
+      cust = { id: Date.now().toString(36), name: customerName, aadhar: aadharNumber, phoneNumber, history: [] };
+      customersDB.push(cust);
+    }
+    cust.history = cust.history || [];
+    if (updatedRoom.status === 'occupied') {
+      cust.history.push({ roomId, checkinTime, checkoutTime, totalAmount, paidAmount, dueAmount });
+    }
   }
 
-  // Persist to server if possible
+  // Attempt server update
   try {
-    const body = { ...updatedRoom };
-    // include a small paymentEvent if paidAmount > previous paidAmount (server increments payments)
-    const prevPaid = rooms[idx].paidAmount || 0;
-    if (paidAmount > prevPaid) {
-      body.paymentEvent = { amount: paidAmount - prevPaid, mode: newPaymentMode || '' };
-    }
-    const res = await fetch(`${API}/rooms/${roomId}`, {
+    const res = await fetchWithAuth(`${API}/rooms/${roomId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(updatedRoom)
     });
-    if (!res.ok) throw new Error('Failed to update on server');
-    const result = await res.json();
-    // server will broadcast via socket; we still update local copy so UI is snappy
-    rooms[idx] = result.room || updatedRoom;
-    saveToLocalFallback();
-    renderRooms();
-    updateStats();
-    updatePaymentCounters();
-    updateDuePaymentsTable();
-    updateTotalDue();
-    closeModal();
-    showNotification('Room updated successfully!', 'success');
-  } catch (err) {
-    // fallback: local only
+    if (!res.ok) throw new Error('Room update failed');
+    // optimistic local update
     rooms[idx] = updatedRoom;
-    localStorage.setItem('hotelRooms', JSON.stringify(rooms));
-
-    // update payments locally if needed
-    if (oldStatus !== 'occupied' && updatedRoom.paymentMode && paidAmount > 0) {
-      if (updatedRoom.paymentMode === 'cash') payments.cash += paidAmount;
-      else if (updatedRoom.paymentMode === 'UPI') payments.upi += paidAmount;
-
-      const today = new Date().toDateString();
-      const currentMonth = new Date().getMonth();
-      const currentYear = new Date().getFullYear();
-      if (!payments.lastUpdated || new Date(payments.lastUpdated).toDateString() !== today) payments.dayRevenue = paidAmount;
-      else payments.dayRevenue += paidAmount;
-      if (!payments.lastUpdated || new Date(payments.lastUpdated).getMonth() !== currentMonth || new Date(payments.lastUpdated).getFullYear() !== currentYear) payments.monthRevenue = paidAmount;
-      else payments.monthRevenue += paidAmount;
-      payments.lastUpdated = new Date().toISOString();
-      localStorage.setItem('hotelPayments', JSON.stringify(payments));
-    }
-
     saveToLocalFallback();
     renderRooms();
     updateStats();
@@ -820,87 +421,25 @@ document.getElementById('roomForm').addEventListener('submit', async function(e)
     updateDuePaymentsTable();
     updateTotalDue();
     closeModal();
-    showNotification('Room updated locally (server unavailable).', 'error');
+    showNotification('Room updated', 'success');
+  } catch (err) {
+    console.warn('Server update failed, saved locally', err);
+    rooms[idx] = updatedRoom;
+    saveToLocalFallback();
+    renderRooms();
+    updateStats();
+    updateDuePaymentsTable();
+    updateTotalDue();
+    closeModal();
+    showNotification('Updated locally (server offline)', 'error');
   }
 });
 
-// ---------- All Customers modal ----------
-function openAllCustomersModal() {
-  if (currentUser && currentUser.role !== 'Owner') {
-    showNotification('Only owner can view all customers!', 'error');
-    return;
-  }
-  document.getElementById('allCustomersModal').classList.remove('hidden');
-  renderAllCustomers();
-}
-
-function closeAllCustomersModal() {
-  document.getElementById('allCustomersModal').classList.add('hidden');
-}
-
-function renderAllCustomers() {
-  const customersTable = document.getElementById('allCustomersTable');
-  const noCustomers = document.getElementById('noCustomersFound');
-  if (!customersTable || !noCustomers) return;
-  customersTable.innerHTML = '';
-
-  if (!customersDB || customersDB.length === 0) {
-    noCustomers.classList.remove('hidden');
-    return;
-  }
-  noCustomers.classList.add('hidden');
-
-  customersDB.forEach(customer => {
-    const row = document.createElement('tr');
-    const lastVisit = customer.history && customer.history.length > 0 ? new Date(customer.history[customer.history.length - 1].checkinTime).toLocaleDateString() : 'No visits';
-    row.innerHTML = `
-      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${customer.name}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${customer.aadhar}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${customer.phoneNumber || '-'}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${customer.history ? customer.history.length : 0}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${lastVisit}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-        <button onclick="viewCustomerDetails('${customer.aadhar}')" class="text-blue-600 hover:text-blue-900">View Details</button>
-      </td>
-    `;
-    customersTable.appendChild(row);
-  });
-}
-
-function viewCustomerDetails(aadhar) {
-  const customer = findCustomerByAadhar(aadhar);
-  if (!customer) return;
-  closeAllCustomersModal();
-  const availableRoom = rooms.find(r => r.status === 'available');
-  if (availableRoom) {
-    openRoomModal(availableRoom.id);
-    setTimeout(() => {
-      document.getElementById('customerName').value = customer.name;
-      document.getElementById('aadharNumber').value = customer.aadhar;
-      document.getElementById('phoneNumber').value = customer.phoneNumber || '';
-      showCustomerHistory(customer);
-    }, 120);
-  } else {
-    showNotification('No available rooms to assign customer!', 'error');
-  }
-}
-
-document.getElementById('customerSearch').addEventListener('input', function(e) {
-  const searchTerm = e.target.value.toLowerCase();
-  const rows = document.querySelectorAll('#allCustomersTable tr');
-  rows.forEach(row => {
-    const name = row.cells[0].textContent.toLowerCase();
-    const aadhar = row.cells[1].textContent.toLowerCase();
-    row.style.display = (name.includes(searchTerm) || aadhar.includes(searchTerm)) ? '' : 'none';
-  });
-});
-
-// ---------- Payment modal ----------
+// ========== PAYMENTS ==========
 function openPaymentModal(roomId) {
-  if (!currentUser || currentUser.role !== 'Owner') return;
+  if (getRole() !== 'Owner') { showNotification('Only owner can update payments', 'error'); return; }
   const room = rooms.find(r => r.id === roomId);
   if (!room) return;
-
   document.getElementById('paymentRoomId').value = room.id;
   document.getElementById('paymentRoomNumber').textContent = room.id;
   document.getElementById('paymentCustomerName').textContent = room.customerName || '-';
@@ -912,116 +451,242 @@ function openPaymentModal(roomId) {
   document.getElementById('paymentModal').classList.remove('hidden');
 }
 
-function closePaymentModal() {
-  document.getElementById('paymentModal').classList.add('hidden');
-}
+function closePaymentModal() { document.getElementById('paymentModal').classList.add('hidden'); }
 
-document.getElementById('paymentForm').addEventListener('submit', async function(e) {
+document.getElementById('paymentForm').addEventListener('submit', async function (e) {
   e.preventDefault();
-  const roomId = parseInt(document.getElementById('paymentRoomId').value);
+  if (getRole() !== 'Owner') { showNotification('Only owner can update payments', 'error'); return; }
+  const roomId = Number(document.getElementById('paymentRoomId').value);
   const idx = rooms.findIndex(r => r.id === roomId);
   if (idx === -1) return;
 
-  const additionalPayment = parseInt(document.getElementById('additionalPayment').value) || 0;
-  const paymentMode = document.getElementById('additionalPaymentMode').value;
-  if (additionalPayment <= 0 || !paymentMode) {
-    showNotification('Please enter a valid payment amount and select payment mode!', 'error');
-    return;
-  }
+  const amount = Number(document.getElementById('additionalPayment').value) || 0;
+  const mode = document.getElementById('additionalPaymentMode').value || 'cash';
+  if (amount <= 0) { showNotification('Enter amount', 'error'); return; }
 
-  // Update locally
-  rooms[idx].paidAmount = (rooms[idx].paidAmount || 0) + additionalPayment;
-  rooms[idx].dueAmount = Math.max(0, (rooms[idx].dueAmount || 0) - additionalPayment);
+  // Update local
+  rooms[idx].paidAmount = (rooms[idx].paidAmount || 0) + amount;
+  rooms[idx].dueAmount = Math.max(0, (rooms[idx].totalAmount || 0) - rooms[idx].paidAmount);
 
-  // Persist payment to server
   try {
-    const res = await fetch(`${API}/payments`, {
+    const res = await fetchWithAuth(`${API}/payments`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount: additionalPayment, mode: paymentMode, roomId, message: `Additional payment of ₹${additionalPayment} received via ${paymentMode} for Room ${roomId}` })
+      body: JSON.stringify({ amount, mode, roomId })
     });
-    if (!res.ok) throw new Error('Payment API failed');
-    // Server broadcasts paymentsUpdated & notificationsUpdated
-    // Update local rooms on server update; for now save local fallback
-    localStorage.setItem('hotelRooms', JSON.stringify(rooms));
+    if (!res.ok) throw new Error('Payments API failed');
+    // try to update room on server too
+    try {
+      await fetchWithAuth(`${API}/rooms/${roomId}`, { method: 'PUT', body: JSON.stringify(rooms[idx]) });
+    } catch(e){ /* ignore */ }
     saveToLocalFallback();
     renderRooms();
     updatePaymentCounters();
     updateDuePaymentsTable();
     updateTotalDue();
     closePaymentModal();
-    showNotification(`Payment of ₹${additionalPayment} received via ${paymentMode} for Room ${roomId}!`, 'success');
-    addNotification(`Additional payment of ₹${additionalPayment} received via ${paymentMode} for Room ${roomId}`);
+    showNotification(`Payment ₹${amount} recorded`, 'success');
+    addNotification(`Payment of ₹${amount} received for Room ${roomId} via ${mode}`);
   } catch (err) {
-    // fallback local
-    localStorage.setItem('hotelRooms', JSON.stringify(rooms));
-    payments[paymentMode === 'cash' ? 'cash' : 'upi'] += additionalPayment;
-    const today = new Date().toDateString();
-    const cm = new Date().getMonth();
-    const cy = new Date().getFullYear();
-    if (!payments.lastUpdated || new Date(payments.lastUpdated).toDateString() !== today) payments.dayRevenue = additionalPayment;
-    else payments.dayRevenue += additionalPayment;
-    if (!payments.lastUpdated || new Date(payments.lastUpdated).getMonth() !== cm || new Date(payments.lastUpdated).getFullYear() !== cy) payments.monthRevenue = additionalPayment;
-    else payments.monthRevenue += additionalPayment;
-    payments.lastUpdated = new Date().toISOString();
-    localStorage.setItem('hotelPayments', JSON.stringify(payments));
+    console.warn('Payment failed', err);
     saveToLocalFallback();
     renderRooms();
     updatePaymentCounters();
     updateDuePaymentsTable();
     updateTotalDue();
     closePaymentModal();
-    showNotification('Payment recorded locally (server unavailable).', 'error');
+    showNotification('Payment recorded locally (server offline)', 'error');
   }
 });
 
-// ---------- Utility: notifications UI ----------
-function showNotification(message, type) {
-  const notification = document.createElement('div');
-  notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white fade-in z-50 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
-  notification.innerHTML = `<div class="flex items-center"><i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-2"></i>${message}</div>`;
-  document.body.appendChild(notification);
-  setTimeout(() => notification.remove(), 3000);
+// ========== CUSTOMERS ==========
+function openAllCustomersModal() {
+  if (getRole() !== 'Owner') { showNotification('Only owner can view customers', 'error'); return; }
+  document.getElementById('allCustomersModal').classList.remove('hidden');
+  renderAllCustomers();
+}
+function closeAllCustomersModal() { document.getElementById('allCustomersModal').classList.add('hidden'); }
+
+function renderAllCustomers() {
+  const table = document.getElementById('allCustomersTable');
+  const noEl = document.getElementById('noCustomersFound');
+  if (!table || !noEl) return;
+  table.innerHTML = '';
+  if (!customersDB || customersDB.length === 0) { noEl.classList.remove('hidden'); return; }
+  noEl.classList.add('hidden');
+  customersDB.forEach(c => {
+    const row = document.createElement('tr');
+    const lastVisit = c.history && c.history.length ? new Date(c.history[c.history.length-1].checkinTime).toLocaleDateString() : 'No visits';
+    row.innerHTML = `
+      <td class="px-6 py-4">${escapeHtml(c.name)}</td>
+      <td class="px-6 py-4">${escapeHtml(c.aadhar)}</td>
+      <td class="px-6 py-4">${escapeHtml(c.phoneNumber || '-')}</td>
+      <td class="px-6 py-4">${c.history ? c.history.length : 0}</td>
+      <td class="px-6 py-4">${lastVisit}</td>
+      <td class="px-6 py-4"><button onclick="viewCustomerDetails('${c.aadhar}')" class="text-blue-600">View</button></td>`;
+    table.appendChild(row);
+  });
 }
 
-// ---------- Input handlers ----------
-document.getElementById('roomStatus').addEventListener('change', function(e) {
-  const customerDetails = document.getElementById('customerDetails');
-  if (e.target.value === 'occupied') {
-    customerDetails.style.display = 'block';
-    calculateTotalAmount();
-  } else {
-    customerDetails.style.display = 'none';
-  }
+function viewCustomerDetails(aadhar) {
+  const c = customersDB.find(x => x.aadhar === aadhar);
+  if (!c) return;
+  closeAllCustomersModal();
+  const avail = rooms.find(r => r.status === 'available');
+  if (avail) {
+    openRoomModal(avail.id);
+    setTimeout(() => {
+      document.getElementById('customerName').value = c.name;
+      document.getElementById('aadharNumber').value = c.aadhar;
+      document.getElementById('phoneNumber').value = c.phoneNumber || '';
+      showCustomerHistory(c);
+    }, 150);
+  } else showNotification('No available rooms', 'error');
+}
+
+document.getElementById('customerSearch').addEventListener('input', function (e) {
+  const term = e.target.value.toLowerCase();
+  const rows = document.querySelectorAll('#allCustomersTable tr');
+  rows.forEach(row => {
+    const name = row.cells[0].textContent.toLowerCase();
+    const aadhar = row.cells[1].textContent.toLowerCase();
+    row.style.display = (name.includes(term) || aadhar.includes(term)) ? '' : 'none';
+  });
 });
 
-// ---------- Initialization on page load ----------
-document.addEventListener('DOMContentLoaded', function() {
-  // set default checkin/checkout
+// ========== NOTIFICATIONS ==========
+function updateNotificationBadge() {
+  const badge = document.getElementById('notificationBadge');
+  if (!badge) return;
+  if (notifications && notifications.length) {
+    badge.textContent = notifications.length;
+    badge.classList.remove('hidden');
+  } else badge.classList.add('hidden');
+}
+
+function loadNotifications() {
+  const list = document.getElementById('notificationList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!notifications || !notifications.length) {
+    list.innerHTML = '<p class="p-4 text-gray-500 text-center">No notifications</p>';
+    return;
+  }
+  notifications.forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'p-4 border-b hover:bg-gray-50';
+    el.innerHTML = `<p class="text-gray-800">${escapeHtml(n.message)}</p><p class="text-xs text-gray-500 mt-2">${new Date(n.timestamp).toLocaleString()}</p>`;
+    list.appendChild(el);
+  });
+}
+
+function addNotification(message) {
+  const n = { message, timestamp: new Date().toISOString() };
+  notifications.push(n);
+  saveToLocalFallback();
+  updateNotificationBadge();
+  // try to notify server via payments endpoint (owner)
+  fetchWithAuth(`${API}/payments`, {
+    method: 'POST',
+    body: JSON.stringify({ amount: 0, mode: '', message })
+  }).catch(()=>{});
+}
+
+// clear notifications (owner)
+function clearAllNotifications() {
+  if (getRole() !== 'Owner') { showNotification('Only owner can clear notifications', 'error'); return; }
+  showConfirmModal('Clear all notifications?', async () => {
+    try {
+      const res = await fetchWithAuth(`${API}/notifications`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed');
+      notifications = [];
+      saveToLocalFallback();
+      updateNotificationBadge();
+      loadNotifications();
+      showNotification('Notifications cleared', 'success');
+    } catch (e) {
+      notifications = [];
+      saveToLocalFallback();
+      updateNotificationBadge();
+      loadNotifications();
+      showNotification('Notifications cleared locally', 'success');
+    }
+  });
+}
+
+// ========== HELPERS ==========
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"'`=\/]/g, function (s) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'})[s]; });
+}
+
+function showNotification(message, type = 'success') {
+  const container = document.createElement('div');
+  container.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white z-50 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+  container.innerHTML = `<div class="flex items-center"><i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-2"></i>${escapeHtml(message)}</div>`;
+  document.body.appendChild(container);
+  setTimeout(()=> container.remove(), 3000);
+}
+
+function showConfirmModal(message, onConfirm) {
+  const m = document.getElementById('confirmModal');
+  const msg = document.getElementById('confirmMessage');
+  const yes = document.getElementById('confirmYes');
+  const no = document.getElementById('confirmNo');
+  if (!m) { if (onConfirm) onConfirm(); return; }
+  msg.textContent = message;
+  m.classList.remove('hidden');
+
+  // replace listeners
+  const yesNew = yes.cloneNode(true);
+  yes.parentNode.replaceChild(yesNew, yes);
+  const noNew = no.cloneNode(true);
+  no.parentNode.replaceChild(noNew, no);
+
+  yesNew.addEventListener('click', () => { onConfirm && onConfirm(); m.classList.add('hidden'); });
+  noNew.addEventListener('click', () => m.classList.add('hidden'));
+}
+
+// ========== LOGOUT ==========
+document.getElementById('logoutBtn') && document.getElementById('logoutBtn').addEventListener('click', () => { logout(); showNotification('Logged out', 'success'); });
+
+function logout() {
+  setToken('');
+  setRole('');
+  try { if (socket) socket.disconnect(); } catch(e){}
+  document.getElementById('dashboardScreen').classList.add('hidden');
+  document.getElementById('loginScreen').classList.remove('hidden');
+  document.getElementById('dashboardScreen').classList.remove('owner-visible');
+}
+
+// ========== INIT ON LOAD ==========
+document.addEventListener('DOMContentLoaded', () => {
+  // set default times if elements exist
   const now = new Date();
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  const checkin = document.getElementById('checkinTime');
-  const checkout = document.getElementById('checkoutTime');
-  if (checkin) checkin.value = now.toISOString().slice(0, 16);
-  if (checkout) {
+  const ci = document.getElementById('checkinTime');
+  const co = document.getElementById('checkoutTime');
+  if (ci) ci.value = now.toISOString().slice(0,16);
+  if (co) {
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    checkout.value = tomorrow.toISOString().slice(0, 16);
+    co.value = tomorrow.toISOString().slice(0,16);
   }
 
-  // load data (if user logs in later, this will refresh)
-  loadInitialData();
-});
-
-// close notification dropdown when clicking outside
-document.addEventListener('click', function(e) {
-  const notificationContainer = document.getElementById('notificationContainer');
-  const notificationDropdown = document.getElementById('notificationDropdown');
-  if (notificationContainer && notificationDropdown && !notificationContainer.contains(e.target)) {
-    notificationDropdown.classList.add('hidden');
+  // Show/hide based on token
+  const token = getToken();
+  if (token) {
+    connectSocket();
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('dashboardScreen').classList.remove('hidden');
+    const role = getRole();
+    if (role === 'Owner') document.getElementById('dashboardScreen').classList.add('owner-visible');
+    document.getElementById('userRole').textContent = role;
+  } else {
+    document.getElementById('loginScreen').classList.remove('hidden');
+    document.getElementById('dashboardScreen').classList.add('hidden');
   }
+
+  // initial render from local storage (until API loads)
+  if (!rooms || !rooms.length) generateDefaultRooms();
+  applyDataToUI();
 });
-
-// (ALL your room modal, payment, notifications & UI functions stay unchanged)
-// (No change needed in HTML or CSS)
-
