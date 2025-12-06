@@ -902,3 +902,126 @@ if (!payments || typeof payments !== "object") {
 }
 
 /* ---------------- END OF FINAL SCRIPT.JS ---------------- */
+
+
+
+
+/* ---------------- MISSING UI HELPERS ADDED ---------------- */
+
+/* Ensure payment counter changes are persisted and UI updated immediately when room modal payment added */
+function _persistPaymentChangesAndRefresh() {
+  try {
+    saveLocal();
+  } catch(e) {}
+  try {
+    applyDataToUI();
+  } catch(e) {}
+}
+
+/* Open / Close All Customers Modal and render list */
+function openAllCustomersModal(){
+  const modal = document.getElementById('allCustomersModal');
+  if(modal) modal.classList.remove('hidden');
+  renderAllCustomers();
+}
+function closeAllCustomersModal(){
+  const modal = document.getElementById('allCustomersModal');
+  if(modal) modal.classList.add('hidden');
+}
+function renderAllCustomers(){
+  const table = document.getElementById('allCustomersTable');
+  if(!table) return;
+  table.innerHTML = '';
+  if(!customersDB || !customersDB.length){
+    const noEl = document.getElementById('noCustomersFound');
+    if(noEl) noEl.classList.remove('hidden');
+    return;
+  }
+  const noEl = document.getElementById('noCustomersFound');
+  if(noEl) noEl.classList.add('hidden');
+
+  customersDB.forEach(c=>{
+    const tr = document.createElement('tr');
+    const lastVisit = (c.history && c.history.length) ? new Date(c.history[c.history.length-1].checkinTime).toLocaleDateString() : '-';
+    tr.innerHTML = `
+      <td class="px-6 py-4">${escapeHtml(c.name || "-")}</td>
+      <td class="px-6 py-4">${escapeHtml(c.aadhar || "-")}</td>
+      <td class="px-6 py-4">${escapeHtml(c.phoneNumber || "-")}</td>
+      <td class="px-6 py-4">${c.history ? c.history.length : 0}</td>
+      <td class="px-6 py-4">${lastVisit}</td>
+      <td class="px-6 py-4"><button class="text-blue-600" onclick="viewCustomerDetailsFromList('${c.aadhar}')">View</button></td>
+    `;
+    table.appendChild(tr);
+  });
+}
+
+/* helper to view customer from the customers list */
+function viewCustomerDetailsFromList(aadhar){
+  const c = customersDB.find(x=>x.aadhar === aadhar);
+  if(!c) { showNotification('Customer not found','error'); return; }
+  closeAllCustomersModal();
+  const avail = rooms.find(r=>r.status === 'available');
+  if(avail){
+    openRoomModal(avail.id);
+    setTimeout(()=>{
+      document.getElementById('customerName').value = c.name || '';
+      document.getElementById('aadharNumber').value = c.aadhar || '';
+      document.getElementById('phoneNumber').value = c.phoneNumber || '';
+      showCustomerHistory(c);
+    },150);
+  } else {
+    showNotification('No available rooms','error');
+  }
+}
+
+/* universal closeModal used by inline onclicks */
+function closeModal(){
+  const ids = ['roomModal','paymentModal','customerModal','allCustomersModal'];
+  ids.forEach(id=>document.getElementById(id)?.classList.add('hidden'));
+  document.getElementById('customerHistorySection')?.classList.add('hidden');
+}
+
+/* toggle notifications (index.html uses onclick="toggleNotifications()") */
+function toggleNotifications(){
+  const box = document.getElementById('notificationList');
+  if(!box) return;
+  box.classList.toggle('hidden');
+}
+
+/* add notification helper used elsewhere */
+function addNotification(message){
+  if(!message) return;
+  notifications = notifications || [];
+  notifications.push({ message: message, time: new Date().toISOString(), read: false });
+  saveLocal();
+  updateNotificationBadge();
+  loadNotifications();
+  // try to persist to server but don't block
+  try{
+    fetchWithAuth(`${API}/notifications`, { method: 'POST', body: { message, time: new Date().toISOString() } }).catch(()=>{});
+  }catch(e){}
+}
+
+/* Ensure payment counters update when roomForm adds payments (double-ensure) */
+(function patchRoomFormPaymentHook(){
+  const form = document.getElementById('roomForm');
+  if(!form) return;
+  // We will wrap existing submit listener by adding one after it that refreshes counters.
+  form.addEventListener('submit', function(){
+    // slight delay to allow existing handler to modify payments
+    setTimeout(()=>{
+      try{ saveLocal(); }catch(e){}
+      try{ applyDataToUI(); }catch(e){}
+    }, 120);
+  });
+})();
+
+/* Bind View Customers button if it's present but used inline in HTML */
+document.querySelectorAll('button[onclick="openAllCustomersModal()"]').forEach(b=>{
+  b.addEventListener('click', openAllCustomersModal);
+});
+
+/* Ensure notification toggle button (inline) works when present */
+document.querySelectorAll('button[onclick="toggleNotifications()"]').forEach(b=>{
+  b.addEventListener('click', toggleNotifications);
+});
