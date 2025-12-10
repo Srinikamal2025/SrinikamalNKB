@@ -1,7 +1,3 @@
-
-const API_BASE = (typeof API_BASE !== 'undefined') ? API_BASE : (window?.location ? window.location.origin : '') ;
-const API = API_BASE + '/api';
-
 const API = 'https://YOUR-RENDER-URL/api';
 const socket = io('https://YOUR-RENDER-URL');
 // script.js - Frontend logic rewritten to use API + Socket.IO while preserving original UI and behavior
@@ -18,14 +14,32 @@ let notifications = [];
 let customersDB = [];
 
 // ---------- Initialization & Data Loading ----------
-async function loadInitialData(){
-  try{ const r = await fetchWithAuth(`${API}/rooms`); if(r.ok){ rooms = await r.json(); } }catch(e){}
-  try{ const p = await fetchWithAuth(`${API}/payments`); if(p.ok){ payments = await p.json(); } }catch(e){}
-  try{ const c = await fetchWithAuth(`${API}/customers`); if(c.ok){ customersDB = await c.json(); } }catch(e){}
-  try{ const n = await fetchWithAuth(`${API}/notifications`); if(n.ok){ notifications = await n.json(); } }catch(e){}
-  if(!Array.isArray(customersDB)) customersDB = [];
-  saveLocal();
-  applyDataToUI();
+async function loadInitialData() {
+  try {
+    const [roomsRes, paymentsRes, customersRes, notifsRes] = await Promise.all([
+      fetch(`${API}/rooms`),
+      fetch(`${API}/payments`),
+      fetch(`${API}/customers`),
+      fetch(`${API}/notifications`)
+    ]);
+
+    if (!roomsRes.ok || !paymentsRes.ok) throw new Error('API not available');
+
+    rooms = await roomsRes.json();
+    payments = await paymentsRes.json();
+    customersDB = await customersRes.json();
+    notifications = await notifsRes.json();
+
+    saveToLocalFallback(); // update local fallback copies
+    applyDataToUI();
+  } catch (e) {
+    console.warn('API load failed, using localStorage fallback.', e);
+    rooms = JSON.parse(localStorage.getItem('hotelRooms')) || generateDefaultRooms();
+    payments = JSON.parse(localStorage.getItem('hotelPayments')) || payments;
+    customersDB = JSON.parse(localStorage.getItem('hotelCustomersDB')) || [];
+    notifications = JSON.parse(localStorage.getItem('hotelNotifications')) || [];
+    applyDataToUI();
+  }
 }
 
 function saveToLocalFallback() {
@@ -827,17 +841,3 @@ document.addEventListener('click', function(e) {
     notificationDropdown.classList.add('hidden');
   }
 });
-
-
-function syncPaymentsToServer(){
-  try{
-    const payload = {
-      cash: payments.cash || 0,
-      upi: payments.upi || 0,
-      dayRevenue: payments.dayRevenue || 0,
-      monthRevenue: payments.monthRevenue || 0,
-      lastUpdated: new Date().toISOString()
-    };
-    fetchWithAuth(`${API}/payments`, { method: 'POST', body: payload }).catch(()=>{});
-  }catch(e){}
-}
