@@ -88,6 +88,13 @@ function requireRole(role) {
   };
 }
 
+// allow Owner OR Manager
+function requireOwnerOrManager(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (req.user.role === 'Owner' || req.user.role === 'Manager') return next();
+  return res.status(403).json({ error: 'Forbidden: insufficient role' });
+}
+
 // ----------- API routes -----------
 
 // Login: returns JWT
@@ -133,41 +140,58 @@ app.put('/api/rooms/:id', authMiddleware, (req, res) => {
 // Payments endpoints
 app.get('/api/payments', authMiddleware, (req, res) => {
   const data = readData();
-  // Only owner should access full payments; manager gets a subset
-  if (req.user.role === 'Owner') return res.json(data.payments || {});
-  // manager gets totals without breakdown
-  const p = data.payments || {};
-  return res.json({ dayRevenue: p.dayRevenue || 0, monthRevenue: p.monthRevenue || 0 });
+  // Return full payments object to authenticated Owner/Manager so frontend can load counters.
+  // If you want stricter access, modify here.
+  return res.json(data.payments || { cash:0, upi:0, dayRevenue:0, monthRevenue:0 });
 });
 
-// Add a payment (owner only)
-app.post('/api/payments', authMiddleware, requireRole('Owner'), (req, res) => {
-  const { amount = 0, mode = 'cash', roomId = null, message = null } = req.body || {};
+// Add a payment (Owner OR Manager allowed)
+app.post('/api/payments', authMiddleware, requireOwnerOrManager, (req, res) => {
+  const payload = req.body || {};
   const data = readData();
 
+  // Ensure payments object exists
   data.payments = data.payments || { cash:0, upi:0, dayRevenue:0, monthRevenue:0 };
-  const amt = Number(amount) || 0;
 
-  if (mode.toLowerCase() === 'upi') data.payments.upi = (data.payments.upi || 0) + amt;
-  else data.payments.cash = (data.payments.cash || 0) + amt;
+  // Two accepted payload styles:
+  // 1) incremental: { amount, mode, roomId, message }  <-- existing behavior
+  // 2) totals: { cash, upi, dayRevenue, monthRevenue, lastUpdated }  <-- accept full totals
+  const hasTotals = ('cash' in payload) || ('upi' in payload) || ('dayRevenue' in payload) || ('monthRevenue' in payload);
 
-  // update day/month revenue roughly
-  data.payments.dayRevenue = (data.payments.dayRevenue || 0) + amt;
-  data.payments.monthRevenue = (data.payments.monthRevenue || 0) + amt;
-  data.payments.lastUpdated = new Date().toISOString();
+  if (hasTotals) {
+    // Overwrite / upsert numeric totals only for provided keys
+    ['cash','upi','dayRevenue','monthRevenue','lastUpdated'].forEach(k => {
+      if (k in payload) {
+        data.payments[k] = payload[k];
+      }
+    });
+  } else {
+    // incremental update
+    const { amount = 0, mode = 'cash', roomId = null, message = null } = payload;
+    const amt = Number(amount) || 0;
+    if (mode && String(mode).toLowerCase() === 'upi') data.payments.upi = (data.payments.upi || 0) + amt;
+    else data.payments.cash = (data.payments.cash || 0) + amt;
 
-  // Optionally add a notification (if message present)
-  if (message) {
-    data.notifications = data.notifications || [];
-    data.notifications.push({ message, timestamp: new Date().toISOString() });
+    // update day/month revenue
+    data.payments.dayRevenue = (data.payments.dayRevenue || 0) + amt;
+    data.payments.monthRevenue = (data.payments.monthRevenue || 0) + amt;
   }
 
-  // If roomId provided, update that room's paid/due amounts
-  if (roomId) {
-    const rIdx = (data.rooms || []).findIndex(r => r.id === Number(roomId));
+  // set lastUpdated timestamp
+  data.payments.lastUpdated = payload.lastUpdated || new Date().toISOString();
+
+  // Optionally add a notification (if message present)
+  if (payload.message) {
+    data.notifications = data.notifications || [];
+    data.notifications.push({ message: payload.message, timestamp: new Date().toISOString() });
+  }
+
+  // If roomId provided and exists, update that room's paid/due amounts
+  if (payload.roomId) {
+    const rIdx = (data.rooms || []).findIndex(r => r.id === Number(payload.roomId));
     if (rIdx !== -1) {
-      data.rooms[rIdx].paidAmount = (data.rooms[rIdx].paidAmount || 0) + amt;
-      data.rooms[rIdx].dueAmount = Math.max(0, (data.rooms[rIdx].totalAmount || 0) - data.rooms[rIdx].paidAmount);
+      data.rooms[rIdx].paidAmount = (Number(data.rooms[rIdx].paidAmount) || 0) + (Number(payload.amount) || 0);
+      data.rooms[rIdx].dueAmount = Math.max(0, (Number(data.rooms[rIdx].totalAmount) || 0) - (Number(data.rooms[rIdx].paidAmount) || 0));
     }
   }
 
@@ -182,8 +206,8 @@ app.post('/api/payments', authMiddleware, requireRole('Owner'), (req, res) => {
 app.get('/api/customers', authMiddleware, (req, res) => {
   const data = readData();
   if (req.user.role === 'Owner') return res.json(data.customers || []);
-  // manager gets count only
-  return res.json({ count: (data.customers || []).length });
+  // manager gets full list too (we allow manager to view customers)
+  return res.json(data.customers || []);
 });
 
 // Create/update a customer (Owner or Manager via room updates) - optional endpoint
@@ -192,14 +216,30 @@ app.post('/api/customers', authMiddleware, (req, res) => {
   const data = readData();
   data.customers = data.customers || [];
 
-  // basic create
-  const id = Date.now().toString(36);
-  const customer = { id, ...payload, createdAt: new Date().toISOString() };
-  data.customers.push(customer);
-
-  writeData(data);
-  io.emit('customersUpdated', data.customers);
-  return res.json({ ok: true, customer });
+  // Upsert by aadhar if present
+  if (payload.aadhar) {
+    let c = data.customers.find(x => x.aadhar === payload.aadhar);
+    if (!c) {
+      const id = Date.now().toString(36);
+      const customer = { id, ...payload, createdAt: new Date().toISOString() };
+      data.customers.push(customer);
+      writeData(data);
+      io.emit('customersUpdated', data.customers);
+      return res.json({ ok: true, customer });
+    } else {
+      Object.assign(c, payload);
+      writeData(data);
+      io.emit('customersUpdated', data.customers);
+      return res.json({ ok: true, customer: c });
+    }
+  } else {
+    const id = Date.now().toString(36);
+    const customer = { id, ...payload, createdAt: new Date().toISOString() };
+    data.customers.push(customer);
+    writeData(data);
+    io.emit('customersUpdated', data.customers);
+    return res.json({ ok: true, customer });
+  }
 });
 
 // Notifications
