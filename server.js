@@ -1,303 +1,91 @@
-// server.js - Render / Cyclic / Fly / local ready
-// Simple file-backed hotel backend with JWT + Socket.IO
+// FINAL server.js — no JWT, no auth, fully open API
+const fs=require("fs");
+const path=require("path");
+const express=require("express");
+const http=require("http");
+const cors=require("cors");
+const {Server}=require("socket.io");
 
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const http = require('http');
-const cors = require('cors');
-const jwt = require('jsonwebtoken');
-const { Server } = require('socket.io');
+const app=express();
+const server=http.createServer(app);
+const io=new Server(server);
 
-const app = express();
-const server = http.createServer(app);
+const DATA_FILE=path.join(__dirname,"data.json");
 
-// Socket.IO: will be attached after server creation
-const io = new Server(server, {
-  // default options - allow same-origin requests
-  cors: {
-    origin: true,
-    methods: ['GET', 'POST']
-  }
-});
-
-// CONFIG
-const DATA_FILE = path.join(__dirname, 'data.json');
-const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_in_production';
-const TOKEN_EXPIRES_IN = '8h'; // adjust as needed
-
-// Simple in-memory user list for demo. Change as needed or load from env/db.
-const USERS = {
-  owner: { password: 'owner123', role: 'Owner' },
-  manager: { password: 'manager123', role: 'Manager' }
-};
-
-// Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.static(__dirname));
 
-// Serve static frontend files from project root
-app.use(express.static(path.join(__dirname, '/')));
-
-// Utility: read/write data.json safely
-function readData() {
-  try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error('Error reading data.json, returning default structure.', e);
-    // default structure (keeps compatibility)
-    return { rooms: [], payments: { cash:0, upi:0, dayRevenue:0, monthRevenue:0 }, customers: [], notifications: [] };
+function readData(){
+  try{return JSON.parse(fs.readFileSync(DATA_FILE,"utf8"));}
+  catch(e){
+    return{rooms:[],payments:{cash:0,upi:0,dayRevenue:0,monthRevenue:0},customers:[],notifications:[]};
   }
 }
+function writeData(d){fs.writeFileSync(DATA_FILE,JSON.stringify(d,null,2));}
 
-function writeData(data) {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
-    return true;
-  } catch (e) {
-    console.error('Error writing data.json', e);
-    return false;
+app.get("/api/rooms",(req,res)=>{
+  const d=readData();res.json(d.rooms||[]);
+});
+app.post("/api/rooms",(req,res)=>{
+  const d=readData();d.rooms=req.body;writeData(d);
+  io.emit("roomsUpdated",d.rooms);res.json({ok:true});
+});
+
+app.get("/api/payments",(req,res)=>{
+  const d=readData();res.json(d.payments||{});
+});
+app.post("/api/payments",(req,res)=>{
+  const d=readData();const p=d.payments;const b=req.body;
+  if("cash" in b)p.cash=b.cash;
+  if("upi" in b)p.upi=b.upi;
+  if("dayRevenue" in b)p.dayRevenue=b.dayRevenue;
+  if("monthRevenue" in b)p.monthRevenue=b.monthRevenue;
+  if(b.amount&&b.mode){
+    const amt=Number(b.amount)||0;
+    if(b.mode==="upi")p.upi+=amt; else p.cash+=amt;
+    p.dayRevenue+=amt; p.monthRevenue+=amt;
   }
-}
-
-// Auth helpers
-function createToken(username, role) {
-  return jwt.sign({ username, role }, JWT_SECRET, { expiresIn: TOKEN_EXPIRES_IN });
-}
-
-function authMiddleware(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
-  const token = auth.slice(7);
-  try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.user = payload;
-    next();
-  } catch (e) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
-}
-
-function requireRole(role) {
-  return function (req, res, next) {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-    if (req.user.role !== role) return res.status(403).json({ error: 'Forbidden: insufficient role' });
-    next();
-  };
-}
-
-// allow Owner OR Manager
-function requireOwnerOrManager(req, res, next) {
-  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (req.user.role === 'Owner' || req.user.role === 'Manager') return next();
-  return res.status(403).json({ error: 'Forbidden: insufficient role' });
-}
-
-// ----------- API routes -----------
-
-// Login: returns JWT
-app.post('/api/login', (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: 'username & password required' });
-
-  const user = USERS[username];
-  if (!user || user.password !== password) return res.status(401).json({ error: 'Invalid credentials' });
-
-  const token = createToken(username, user.role);
-  return res.json({ token, role: user.role });
+  p.lastUpdated=new Date().toISOString();
+  writeData(d);
+  io.emit("paymentsUpdated",p);
+  res.json({ok:true,payments:p});
 });
 
-// Get all rooms (authenticated)
-app.get('/api/rooms', authMiddleware, (req, res) => {
-  const data = readData();
-  return res.json(data.rooms || []);
+app.get("/api/customers",(req,res)=>{
+  const d=readData();res.json(d.customers||[]);
+});
+app.post("/api/customers",(req,res)=>{
+  const d=readData();const c=req.body;
+  if(!d.customers)d.customers=[];
+  if(c.aadhar){
+    let ex=d.customers.find(x=>x.aadhar===c.aadhar);
+    if(ex)Object.assign(ex,c);
+    else d.customers.push(c);
+  } else d.customers.push(c);
+  writeData(d);
+  io.emit("customersUpdated",d.customers);
+  res.json({ok:true,customers:d.customers});
 });
 
-// Update a room (authenticated)
-// Manager and Owner can update rooms; server trusts auth to decide further logic if needed.
-app.put('/api/rooms/:id', authMiddleware, (req, res) => {
-  const roomId = parseInt(req.params.id);
-  if (Number.isNaN(roomId)) return res.status(400).json({ error: 'Invalid room id' });
-
-  const payload = req.body || {};
-  const data = readData();
-  const idx = (data.rooms || []).findIndex(r => r.id === roomId);
-  if (idx === -1) return res.status(404).json({ error: 'Room not found' });
-
-  // Basic sanitation: only accept fields we expect
-  const allowed = ['status','price','customerName','numberOfPersons','aadharNumber','phoneNumber','checkinTime','checkoutTime','paymentMode','totalAmount','paidAmount','dueAmount'];
-  allowed.forEach(k => { if (k in payload) data.rooms[idx][k] = payload[k]; });
-
-  writeData(data);
-
-  // Broadcast roomsUpdated
-  io.emit('roomsUpdated', data.rooms);
-  return res.json({ ok: true, room: data.rooms[idx] });
+app.get("/api/notifications",(req,res)=>{
+  const d=readData();res.json(d.notifications||[]);
+});
+app.post("/api/notifications",(req,res)=>{
+  const d=readData();
+  d.notifications.push({id:Date.now().toString(),message:req.body.message||"",timestamp:new Date().toISOString()});
+  writeData(d);
+  io.emit("notificationsUpdated",d.notifications);
+  res.json({ok:true});
 });
 
-// Payments endpoints
-app.get('/api/payments', authMiddleware, (req, res) => {
-  const data = readData();
-  // Return full payments object to authenticated Owner/Manager so frontend can load counters.
-  // If you want stricter access, modify here.
-  return res.json(data.payments || { cash:0, upi:0, dayRevenue:0, monthRevenue:0 });
+io.on("connection",s=>{
+  const d=readData();
+  s.emit("roomsUpdated",d.rooms||[]);
+  s.emit("paymentsUpdated",d.payments||{});
+  s.emit("customersUpdated",d.customers||[]);
+  s.emit("notificationsUpdated",d.notifications||[]);
 });
 
-// Add a payment (Owner OR Manager allowed)
-app.post('/api/payments', authMiddleware, requireOwnerOrManager, (req, res) => {
-  const payload = req.body || {};
-  const data = readData();
-
-  // Ensure payments object exists
-  data.payments = data.payments || { cash:0, upi:0, dayRevenue:0, monthRevenue:0 };
-
-  // Two accepted payload styles:
-  // 1) incremental: { amount, mode, roomId, message }  <-- existing behavior
-  // 2) totals: { cash, upi, dayRevenue, monthRevenue, lastUpdated }  <-- accept full totals
-  const hasTotals = ('cash' in payload) || ('upi' in payload) || ('dayRevenue' in payload) || ('monthRevenue' in payload);
-
-  if (hasTotals) {
-    // Overwrite / upsert numeric totals only for provided keys
-    ['cash','upi','dayRevenue','monthRevenue','lastUpdated'].forEach(k => {
-      if (k in payload) {
-        data.payments[k] = payload[k];
-      }
-    });
-  } else {
-    // incremental update
-    const { amount = 0, mode = 'cash', roomId = null, message = null } = payload;
-    const amt = Number(amount) || 0;
-    if (mode && String(mode).toLowerCase() === 'upi') data.payments.upi = (data.payments.upi || 0) + amt;
-    else data.payments.cash = (data.payments.cash || 0) + amt;
-
-    // update day/month revenue
-    data.payments.dayRevenue = (data.payments.dayRevenue || 0) + amt;
-    data.payments.monthRevenue = (data.payments.monthRevenue || 0) + amt;
-  }
-
-  // set lastUpdated timestamp
-  data.payments.lastUpdated = payload.lastUpdated || new Date().toISOString();
-
-  // Optionally add a notification (if message present)
-  if (payload.message) {
-    data.notifications = data.notifications || [];
-    data.notifications.push({ message: payload.message, timestamp: new Date().toISOString() });
-  }
-
-  // If roomId provided and exists, update that room's paid/due amounts
-  if (payload.roomId) {
-    const rIdx = (data.rooms || []).findIndex(r => r.id === Number(payload.roomId));
-    if (rIdx !== -1) {
-      data.rooms[rIdx].paidAmount = (Number(data.rooms[rIdx].paidAmount) || 0) + (Number(payload.amount) || 0);
-      data.rooms[rIdx].dueAmount = Math.max(0, (Number(data.rooms[rIdx].totalAmount) || 0) - (Number(data.rooms[rIdx].paidAmount) || 0));
-    }
-  }
-
-  writeData(data);
-  io.emit('paymentsUpdated', data.payments);
-  io.emit('roomsUpdated', data.rooms || []);
-  io.emit('notificationsUpdated', data.notifications || []);
-  return res.json({ ok: true, payments: data.payments });
-});
-
-// Customers: Owner only for full DB
-app.get('/api/customers', authMiddleware, (req, res) => {
-  const data = readData();
-  if (req.user.role === 'Owner') return res.json(data.customers || []);
-  // manager gets full list too (we allow manager to view customers)
-  return res.json(data.customers || []);
-});
-
-// Create/update a customer (Owner or Manager via room updates) - optional endpoint
-app.post('/api/customers', authMiddleware, (req, res) => {
-  const payload = req.body || {};
-  const data = readData();
-  data.customers = data.customers || [];
-
-  // Upsert by aadhar if present
-  if (payload.aadhar) {
-    let c = data.customers.find(x => x.aadhar === payload.aadhar);
-    if (!c) {
-      const id = Date.now().toString(36);
-      const customer = { id, ...payload, createdAt: new Date().toISOString() };
-      data.customers.push(customer);
-      writeData(data);
-      io.emit('customersUpdated', data.customers);
-      return res.json({ ok: true, customer });
-    } else {
-      Object.assign(c, payload);
-      writeData(data);
-      io.emit('customersUpdated', data.customers);
-      return res.json({ ok: true, customer: c });
-    }
-  } else {
-    const id = Date.now().toString(36);
-    const customer = { id, ...payload, createdAt: new Date().toISOString() };
-    data.customers.push(customer);
-    writeData(data);
-    io.emit('customersUpdated', data.customers);
-    return res.json({ ok: true, customer });
-  }
-});
-
-// Notifications
-app.get('/api/notifications', authMiddleware, (req, res) => {
-  const data = readData();
-  return res.json(data.notifications || []);
-});
-
-// Owner can clear notifications
-app.delete('/api/notifications', authMiddleware, requireRole('Owner'), (req, res) => {
-  const data = readData();
-  data.notifications = [];
-  writeData(data);
-  io.emit('notificationsUpdated', data.notifications);
-  return res.json({ ok: true });
-});
-
-// Health check
-app.get('/health', (req, res) => res.json({ ok: true, now: new Date().toISOString() }));
-
-// Fallback: serve index.html for any other GET (SPA)
-app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, 'index.html');
-  if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
-  return res.status(404).send('Not found');
-});
-
-// Socket.IO: authenticate on connection using token in auth payload
-io.use((socket, next) => {
-  const token = socket.handshake.auth && socket.handshake.auth.token;
-  if (!token) return next(); // allow anonymous read-only socket if you want
-  try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    socket.user = payload;
-    return next();
-  } catch (e) {
-    console.warn('Socket auth failed', e.message);
-    return next(); // allow connect but no user info
-  }
-});
-
-io.on('connection', (socket) => {
-  console.log('Socket connected', socket.id, socket.user ? socket.user.username : 'anonymous');
-
-  // Send current state on connect
-  const data = readData();
-  socket.emit('roomsUpdated', data.rooms || []);
-  socket.emit('paymentsUpdated', data.payments || {});
-  socket.emit('customersUpdated', data.customers || []);
-  socket.emit('notificationsUpdated', data.notifications || []);
-
-  socket.on('disconnect', (reason) => {
-    console.log('Socket disconnected', socket.id, reason);
-  });
-});
-
-// Start server (Render / Fly / Cyclic compatible)
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+const PORT=process.env.PORT||3000;
+server.listen(PORT,()=>console.log("Server running on",PORT));
