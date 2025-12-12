@@ -140,15 +140,20 @@ app.get('/api/payments', authMiddleware, (req, res) => {
   return res.json({ dayRevenue: p.dayRevenue || 0, monthRevenue: p.monthRevenue || 0 });
 });
 
-// Add a payment (owner only)
-app.post('/api/payments', authMiddleware, requireRole('Owner'), (req, res) => {
+// Add a payment (Owner or Manager)
+app.post('/api/payments', authMiddleware, (req, res) => {
+  // Allow both Owner and Manager to add payments
+  if (!req.user || (req.user.role !== 'Owner' && req.user.role !== 'Manager')) {
+    return res.status(403).json({ error: 'Forbidden: insufficient role' });
+  }
+
   const { amount = 0, mode = 'cash', roomId = null, message = null } = req.body || {};
   const data = readData();
 
   data.payments = data.payments || { cash:0, upi:0, dayRevenue:0, monthRevenue:0 };
   const amt = Number(amount) || 0;
 
-  if (mode.toLowerCase() === 'upi') data.payments.upi = (data.payments.upi || 0) + amt;
+  if (mode && String(mode).toLowerCase() === 'upi') data.payments.upi = (data.payments.upi || 0) + amt;
   else data.payments.cash = (data.payments.cash || 0) + amt;
 
   // update day/month revenue roughly
