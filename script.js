@@ -1,10 +1,9 @@
 /* ---------------------------------------------------
-   FINAL UPDATED SCRIPT.JS 
-   Base: Your final fixed version
-   Added: Room Modal Payments → counters update (UPI/Cash/Day/Month)
-   Managers allowed to update payments
-   PaymentMode values matched exactly ("UPI" and "cash")
-   NOTHING ELSE CHANGED
+   FINAL UPDATED SCRIPT.JS
+   Fixes:
+   - Persist payments to server by POSTing { amount, mode, roomId } whenever paid amount increases
+   - Ensure payment modal posts correctly (not the entire payments object)
+   - Keep localStorage fallback when server is unreachable
 --------------------------------------------------- */
 
 const API_BASE = "https://srinikamalnkb.onrender.com";
@@ -235,7 +234,17 @@ async function loadInitialData() {
 
   try {
     const p = await fetchWithAuth(`${API}/payments`);
-    if (p.ok) payments = await p.json();
+    if (p.ok) {
+      const json = await p.json();
+      // Payments endpoint may return object with breakdown or limited view; normalize
+      if (json && typeof json === 'object' && ('cash' in json || 'upi' in json || 'dayRevenue' in json || 'monthRevenue' in json)) {
+        payments = json;
+      } else if (json && typeof json === 'object') {
+        // If manager sees limited data, merge with existing local payments
+        payments.dayRevenue = json.dayRevenue || payments.dayRevenue || 0;
+        payments.monthRevenue = json.monthRevenue || payments.monthRevenue || 0;
+      }
+    }
   } catch {}
 
   try {
@@ -275,6 +284,7 @@ function renderRooms() {
   rooms.forEach((room) => {
     const div = document.createElement("div");
     div.className = `room-box rounded-lg p-4 text-white cursor-pointer room-${room.status}`;
+    div.dataset.roomId = room.id;
 
     div.onclick = () => openRoomModal(room.id);
 
@@ -332,9 +342,6 @@ function updatePaymentCounters() {
   if (monthEl) monthEl.textContent = `₹${payments.monthRevenue || 0}`;
 }
 
-/* ---------------------------------------------------
-   END OF PART 1 — SEND “PART 2” WHEN READY
---------------------------------------------------- */
 /* ---------------- TOTAL DUE (OWNER ONLY) ---------------- */
 function updateTotalDue() {
   if (getRole() !== "Owner") return;
@@ -495,8 +502,7 @@ document
       Number(document.getElementById("paidAmount")?.value) || 0;
 
     /* -------------------------------
-       NEW PAYMENT COUNTER FIX ADDED
-       (Based exactly on "UPI" and "cash")
+       UPDATED: Persist the difference to server as a payment record
        ------------------------------- */
 
     let previousPaid = rooms[idx].paidAmount || 0;
@@ -504,23 +510,47 @@ document
     let addedAmount = newPaid - previousPaid;
 
     if (addedAmount > 0) {
-      payments.cash = payments.cash || 0;
-      payments.upi = payments.upi || 0;
-      payments.dayRevenue = payments.dayRevenue || 0;
-      payments.monthRevenue = payments.monthRevenue || 0;
+      // Try to POST the added payment to the server so data.json is updated
+      try {
+        const resp = await fetchWithAuth(`${API}/payments`, {
+          method: "POST",
+          body: { amount: addedAmount, mode: paymentMode || 'cash', roomId }
+        });
 
-      if (paymentMode === "UPI") {
-        payments.upi += addedAmount;
-      } else {
-        payments.cash += addedAmount;
+        if (resp.ok) {
+          const j = await resp.json();
+          // server returns payments totals (data.payments)
+          if (j && j.payments) payments = j.payments;
+        } else {
+          // server rejected the payment; fallback to local totals
+          payments.cash = payments.cash || 0;
+          payments.upi = payments.upi || 0;
+          payments.dayRevenue = payments.dayRevenue || 0;
+          payments.monthRevenue = payments.monthRevenue || 0;
+
+          if (paymentMode === "UPI") payments.upi += addedAmount;
+          else payments.cash += addedAmount;
+
+          payments.dayRevenue += addedAmount;
+          payments.monthRevenue += addedAmount;
+        }
+      } catch (err) {
+        // network error: keep local totals
+        payments.cash = payments.cash || 0;
+        payments.upi = payments.upi || 0;
+        payments.dayRevenue = payments.dayRevenue || 0;
+        payments.monthRevenue = payments.monthRevenue || 0;
+
+        if (paymentMode === "UPI") payments.upi += addedAmount;
+        else payments.cash += addedAmount;
+
+        payments.dayRevenue += addedAmount;
+        payments.monthRevenue += addedAmount;
       }
-
-      payments.dayRevenue += addedAmount;
-      payments.monthRevenue += addedAmount;
     }
 
     /* -------------------------------
-       END PAYMENT FIX
+       END PAYMENT PERSISTENCE
        ------------------------------- */
 
     let totalAmount = 0;
@@ -618,20 +648,23 @@ document
     }
   });
 
-/* ---------------------------------------------------
-   END OF PART 2 — SAY “PART 3”
---------------------------------------------------- */
 /* ---------------- PAYMENT MODAL ---------------- */
 function openPaymentModal(roomId) {
   const room = rooms.find((r) => r.id === roomId);
   if (!room) return;
 
-  document.getElementById("paymentRoomId").textContent = room.id;
-  document.getElementById("currentDueAmount").textContent =
-    "₹" + (room.dueAmount || 0);
+  // use hidden input to keep reference
+  const paymentRoomInput = document.getElementById("paymentRoomId");
+  if (paymentRoomInput) paymentRoomInput.value = room.id;
 
-  document.getElementById("newPaymentAmount").value = "";
-  document.getElementById("newPaymentMode").value = "cash";
+  document.getElementById("paymentRoomNumber").textContent = room.id;
+  document.getElementById("paymentCustomerName").textContent = room.customerName || "-";
+  document.getElementById("paymentTotalAmount").textContent = "₹" + (room.totalAmount || 0);
+  document.getElementById("paymentAlreadyPaid").textContent = "₹" + (room.paidAmount || 0);
+  document.getElementById("paymentDueAmount").textContent = "₹" + (room.dueAmount || 0);
+
+  document.getElementById("additionalPayment").value = "";
+  document.getElementById("additionalPaymentMode").value = "cash";
 
   document.getElementById("paymentModal")?.classList.remove("hidden");
 }
@@ -649,18 +682,18 @@ document
 
     const roomId =
       Number(
-        document.getElementById("paymentRoomId")?.textContent
+        document.getElementById("paymentRoomId")?.value
       ) || 0;
 
     const idx = rooms.findIndex((r) => r.id === roomId);
     if (idx === -1) return;
 
     const paymentAmount =
-      Number(document.getElementById("newPaymentAmount")?.value) ||
+      Number(document.getElementById("additionalPayment")?.value) ||
       0;
 
     const paymentMode =
-      document.getElementById("newPaymentMode")?.value || "cash";
+      document.getElementById("additionalPaymentMode")?.value || "cash";
 
     if (paymentAmount <= 0) {
       showNotification(
@@ -670,7 +703,7 @@ document
       return;
     }
 
-    /* --------- UPDATE ROOM --------- */
+    /* --------- UPDATE ROOM LOCALLY FIRST --------- */
     rooms[idx].paidAmount =
       (rooms[idx].paidAmount || 0) + paymentAmount;
 
@@ -680,31 +713,51 @@ document
         (rooms[idx].paidAmount || 0)
     );
 
-    /* --------- UPDATE COUNTERS --------- */
-    payments.cash = payments.cash || 0;
-    payments.upi = payments.upi || 0;
-    payments.dayRevenue = payments.dayRevenue || 0;
-    payments.monthRevenue = payments.monthRevenue || 0;
+    /* --------- TRY TO POST PAYMENT TO SERVER (correct payload) --------- */
+    try {
+      const resp = await fetchWithAuth(`${API}/payments`, {
+        method: "POST",
+        body: { amount: paymentAmount, mode: paymentMode, roomId }
+      });
 
-    if (paymentMode === "UPI") payments.upi += paymentAmount;
-    else payments.cash += paymentAmount;
+      if (resp.ok) {
+        const j = await resp.json();
+        if (j && j.payments) payments = j.payments;
+      } else {
+        // fallback to local totals if server rejects
+        payments.cash = payments.cash || 0;
+        payments.upi = payments.upi || 0;
+        payments.dayRevenue = payments.dayRevenue || 0;
+        payments.monthRevenue = payments.monthRevenue || 0;
 
-    payments.dayRevenue += paymentAmount;
-    payments.monthRevenue += paymentAmount;
+        if (paymentMode === "UPI") payments.upi += paymentAmount;
+        else payments.cash += paymentAmount;
 
-    /* --------- SAVE LOCALLY --------- */
+        payments.dayRevenue += paymentAmount;
+        payments.monthRevenue += paymentAmount;
+      }
+    } catch (err) {
+      // network error: keep local totals
+      payments.cash = payments.cash || 0;
+      payments.upi = payments.upi || 0;
+      payments.dayRevenue = payments.dayRevenue || 0;
+      payments.monthRevenue = payments.monthRevenue || 0;
+
+      if (paymentMode === "UPI") payments.upi += paymentAmount;
+      else payments.cash += paymentAmount;
+
+      payments.dayRevenue += paymentAmount;
+      payments.monthRevenue += paymentAmount;
+    }
+
+    /* --------- SAVE LOCALLY & TRY TO SAVE ROOM --------- */
     saveLocal();
     applyDataToUI();
 
-    /* --------- SAVE TO SERVER --------- */
+    // PUT the room to server (best-effort)
     fetchWithAuth(`${API}/rooms/${roomId}`, {
       method: "PUT",
       body: rooms[idx],
-    }).catch(() => {});
-
-    fetchWithAuth(`${API}/payments`, {
-      method: "POST",
-      body: payments,
     }).catch(() => {});
 
     document.getElementById("paymentModal")?.classList.add("hidden");
@@ -853,8 +906,6 @@ document
   ?.addEventListener("click", () => {
     document.getElementById("roomModal")?.classList.add("hidden");
   });
-
-/* ---------------- CLOSE PAYMENT MODAL (ALREADY ABOVE) ---------------- */
 
 /* ---------------- CLOSE NOTIFICATION DROPDOWN WHEN CLICK OUTSIDE ---------------- */
 document.addEventListener("click", (e) => {
