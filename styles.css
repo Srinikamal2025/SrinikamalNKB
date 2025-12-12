@@ -1,19 +1,84 @@
-/* Extracted styles from your original file */
-.room-box { transition: all 0.3s ease; }
-.room-box:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-.room-available { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
-.room-occupied { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
-.room-maintenance { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
-.fade-in { animation: fadeIn 0.5s ease-in; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-.owner-only { display: none; }
-.owner-visible .owner-only { display: block; }
-.notification-badge { animation: pulse 2s infinite; }
-@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-.confirm-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.confirm-content { background-color: white; padding: 20px; border-radius: 8px; max-width: 400px; width: 90%; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); }
-
-/* small responsive helper */
-@media (max-width: 768px) {
-  .room-box { padding: 12px; }
+/* Mobile-first optimized styles */
+:root{
+  --bg-room-available: linear-gradient(135deg,#10b981 0%,#059669 100%);
+  --bg-room-occupied: linear-gradient(135deg,#ef4444 0%,#dc2626 100%);
+  --bg-room-maintenance: linear-gradient(135deg,#f59e0b 0%,#d97706 100%);
+  --shadow-sm: 0 4px 12px rgba(0,0,0,0.12);
 }
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial}
+/* Layout helpers */
+.container{width:100%;padding-left:1rem;padding-right:1rem;margin-left:auto;margin-right:auto}
+/* Room boxes - mobile first */
+.room-box{
+  display:flex;align-items:center;justify-content:center;flex-direction:column;
+  gap:0.5rem;padding:12px;border-radius:10px;color:#fff;transition:transform .18s ease,box-shadow .18s ease;
+  touch-action:manipulation;user-select:none;min-height:88px;
+}
+.room-box:active{transform:translateY(1px)}
+.room-box:hover{transform:translateY(-2px);box-shadow:var(--shadow-sm)}
+.room-box p{margin:0}
+.room-available{background:var(--bg-room-available)}
+.room-occupied{background:var(--bg-room-occupied)}
+.room-maintenance{background:var(--bg-room-maintenance)}
+/* Make the grid responsive: 1 column on small, 2 on sm, 3 on md, auto-fit on larger */
+#roomGrid{display:grid;grid-template-columns:repeat(1,1fr);gap:12px}
+@media(min-width:480px){#roomGrid{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:768px){#roomGrid{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:1024px){#roomGrid{grid-template-columns:repeat(7,1fr);gap:16px}}
+/* Header compact on mobile */
+header .flex{align-items:center}
+header h1{font-size:1.125rem;margin:0}
+header p{margin:0;font-size:.85rem}
+/* Stats and revenue cards stack on mobile */
+.grid{display:grid;grid-template-columns:repeat(1,1fr);gap:12px}
+@media(min-width:768px){.grid{grid-template-columns:repeat(4,1fr)}}
+/* Card styles */
+.bg-white.rounded-lg{border-radius:12px;padding:16px}
+/* Increase button hit area */
+button, .owner-only button{padding:.6rem .9rem;font-size:0.95rem;border-radius:8px}
+/* Modals: full-screen on small devices, centered on larger */
+#roomModal,#paymentModal,#allCustomersModal{display:none}
+#roomModal.show,#paymentModal.show,#allCustomersModal.show{display:flex}
+#roomModal .bg-white,#paymentModal .bg-white,#allCustomersModal .bg-white{
+  width:100%;height:100%;border-radius:0;max-width:none;max-height:none;overflow:auto;padding:18px
+}
+@media(min-width:768px){
+  #roomModal .bg-white,#paymentModal .bg-white,#allCustomersModal .bg-white{max-width:900px;border-radius:12px;height:auto}
+}
+/* Forms and inputs full width on mobile */
+input[type=text],input[type=password],input[type=datetime-local],input[type=number],select,textarea{width:100%;padding:.6rem .75rem;border:1px solid #e5e7eb;border-radius:8px;font-size:0.95rem}
+label{font-size:0.85rem;margin-bottom:6px;display:block}
+/* Payment counters - make number prominent and wrapping safe */
+#cashCounter,#upiCounter,#dayRevenue,#monthRevenue,#totalDue{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Notifications dropdown: full width on mobile */
+#notificationDropdown{min-width:220px}
+@media(max-width:767px){
+  #notificationDropdown{position:fixed;left:0;right:0;top:56px;margin:0;border-radius:0;box-shadow:0 6px 20px rgba(0,0,0,0.12)}
+}
+/* Owner-only helpers */
+.owner-only{display:none}
+.owner-visible .owner-only{display:block}
+/* Notification badge tweak */
+.notification-badge{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;padding:0 6px;height:20px;min-width:20px;font-size:12px}
+/* Confirmation modal - centered and accessible */
+.confirm-modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:100}
+.confirm-content{background:#fff;padding:18px;border-radius:10px;max-width:420px;width:100%;box-shadow:var(--shadow-sm)}
+/* Accessibility: focus outlines */
+button:focus,input:focus,select:focus,textarea:focus{outline:3px solid rgba(59,130,246,0.15);outline-offset:2px}
+/* Small helpers */
+.text-center{text-align:center}
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Reduce heavy visual noise on mobile */
+@media(max-width:480px){
+  .room-box{padding:10px;border-radius:8px;min-height:76px}
+  header .container{padding-left:0.75rem;padding-right:0.75rem}
+  .bg-white.rounded-lg{padding:12px}
+}
+/* Keep desktop styles for large screens (override some mobile defaults) */
+@media(min-width:1024px){
+  .room-box{min-height:100px;padding:14px}
+}
+/* keep notification pulse subtle */
+@keyframes pulseSubtle{0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)}}
+.notification-badge{animation: pulseSubtle 2s infinite}
