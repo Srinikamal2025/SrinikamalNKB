@@ -4,6 +4,9 @@
    - Persist payments to server by POSTing { amount, mode, roomId } whenever paid amount increases
    - Ensure payment modal posts correctly (not the entire payments object)
    - Keep localStorage fallback when server is unreachable
+   - Added modal/helper functions that were referenced from HTML but missing:
+     openAllCustomersModal, closeAllCustomersModal, closeModal, closePaymentModal,
+     closeCustomerModal, toggleNotifications, clearAllNotifications
 --------------------------------------------------- */
 
 const API_BASE = "https://srinikamalnkb.onrender.com";
@@ -669,6 +672,10 @@ function openPaymentModal(roomId) {
   document.getElementById("paymentModal")?.classList.remove("hidden");
 }
 
+function closePaymentModal() {
+  document.getElementById("paymentModal")?.classList.add("hidden");
+}
+
 document
   .getElementById("closePaymentModal")
   ?.addEventListener("click", () => {
@@ -812,6 +819,41 @@ function loadNotifications() {
   });
 }
 
+/* Notification toggle function referenced by HTML */
+function toggleNotifications() {
+  const dropdown = document.getElementById("notificationDropdown");
+  if (dropdown) {
+    dropdown.classList.toggle("hidden");
+    // ensure notifications are loaded/refreshed
+    loadNotifications();
+  } else {
+    // fallback to old element id if present
+    const list = document.getElementById("notificationList");
+    if (list) list.classList.toggle("hidden");
+  }
+}
+
+/* Clear notifications (owner-only action) */
+async function clearAllNotifications() {
+  if (!confirm("Clear all notifications? This cannot be undone.")) return;
+
+  try {
+    await fetchWithAuth(`${API}/notifications`, { method: "DELETE" });
+    notifications = [];
+    saveLocal();
+    updateNotificationBadge();
+    loadNotifications();
+    showNotification("Notifications cleared", "success");
+  } catch (err) {
+    // best-effort local clear if server fails for any reason but user is owner
+    notifications = [];
+    saveLocal();
+    updateNotificationBadge();
+    loadNotifications();
+    showNotification("Cleared locally (server unreachable)", "error");
+  }
+}
+
 document
   .getElementById("notificationButton")
   ?.addEventListener("click", () => {
@@ -865,6 +907,10 @@ function viewCustomerDetails(roomId) {
   document.getElementById("customerModal")?.classList.remove("hidden");
 }
 
+function closeCustomerModal() {
+  document.getElementById("customerModal")?.classList.add("hidden");
+}
+
 document
   .getElementById("closeCustomerModal")
   ?.addEventListener("click", () => {
@@ -872,6 +918,104 @@ document
       .getElementById("customerModal")
       ?.classList.add("hidden");
   });
+
+/* ---------------- ALL CUSTOMERS MODAL (was missing) ---------------- */
+function openAllCustomersModal() {
+  const modal = document.getElementById("allCustomersModal");
+  const table = document.getElementById("allCustomersTable");
+  const noEl = document.getElementById("noCustomersFound");
+  if (!modal || !table) return;
+
+  // build table
+  function renderList(list) {
+    table.innerHTML = "";
+    if (!list || !list.length) {
+      if (noEl) noEl.classList.remove("hidden");
+      return;
+    } else {
+      if (noEl) noEl.classList.add("hidden");
+    }
+
+    list.forEach((c) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="px-6 py-4">${escapeHtml(c.name || "-")}</td>
+        <td class="px-6 py-4">${escapeHtml(c.aadhar || "-")}</td>
+        <td class="px-6 py-4">${escapeHtml(c.phoneNumber || "-")}</td>
+        <td class="px-6 py-4">${(Array.isArray(c.history) && c.history.length) || 0}</td>
+        <td class="px-6 py-4">${c.history && c.history.length ? escapeHtml(c.history[c.history.length-1].checkoutTime || '-') : '-'}</td>
+        <td class="px-6 py-4">
+          <button onclick="viewCustomerDetailsForAadhar('${escapeHtml(c.aadhar || "")}')" class="text-blue-600">View</button>
+        </td>
+      `;
+      table.appendChild(tr);
+    });
+  }
+
+  renderList(customersDB);
+
+  // search
+  const search = document.getElementById("customerSearch");
+  if (search) {
+    search.oninput = () => {
+      const q = (search.value || "").trim().toLowerCase();
+      if (!q) return renderList(customersDB);
+      const filtered = customersDB.filter((c) =>
+        (c.name || "").toLowerCase().includes(q) ||
+        (c.aadhar || "").toLowerCase().includes(q) ||
+        (c.phoneNumber || "").toLowerCase().includes(q)
+      );
+      renderList(filtered);
+    };
+  }
+
+  modal.classList.remove("hidden");
+}
+
+function closeAllCustomersModal() {
+  document.getElementById("allCustomersModal")?.classList.add("hidden");
+}
+
+/* helper used by customers table 'View' action */
+function viewCustomerDetailsForAadhar(aadhar) {
+  if (!aadhar) return;
+  const customer = customersDB.find((c) => c.aadhar === aadhar);
+  if (!customer) {
+    showNotification("Customer not found", "error");
+    return;
+  }
+
+  // if customer has history, open room modal for the last booking's room if possible
+  if (customer.history && customer.history.length) {
+    const last = customer.history[customer.history.length - 1];
+    if (last && last.roomId) {
+      // open room modal for that room (if exists)
+      openRoomModal(Number(last.roomId));
+      // Also pre-fill customer details view if needed
+    }
+  }
+
+  // open dedicated customer modal too
+  document.getElementById("custName").textContent = customer.name || "-";
+  document.getElementById("custAadhar").textContent = customer.aadhar || "-";
+  document.getElementById("custPhone").textContent = customer.phoneNumber || "-";
+  const historyBox = document.getElementById("custHistory");
+  historyBox.innerHTML = "";
+  (customer.history || []).forEach((h) => {
+    const div = document.createElement("div");
+    div.className = "p-2 bg-gray-800 rounded mb-2";
+    div.innerHTML = `
+      <p><strong>Room:</strong> ${h.roomId}</p>
+      <p><strong>Check-in:</strong> ${h.checkinTime}</p>
+      <p><strong>Check-out:</strong> ${h.checkoutTime}</p>
+      <p><strong>Total:</strong> ₹${h.totalAmount}</p>
+      <p><strong>Paid:</strong> ₹${h.paidAmount}</p>
+      <p><strong>Due:</strong> ₹${h.dueAmount}</p>
+    `;
+    historyBox.appendChild(div);
+  });
+  document.getElementById("customerModal")?.classList.remove("hidden");
+}
 
 /* ---------------- LOGOUT ---------------- */
 function logout() {
@@ -900,6 +1044,11 @@ function escapeHtml(s) {
     });
 }
 
+/* Close room modal helper (HTML references closeModal) */
+function closeModal() {
+  document.getElementById("roomModal")?.classList.add("hidden");
+}
+
 /* ---------------- CLOSE ROOM MODAL ---------------- */
 document
   .getElementById("closeRoomModal")
@@ -909,13 +1058,13 @@ document
 
 /* ---------------- CLOSE NOTIFICATION DROPDOWN WHEN CLICK OUTSIDE ---------------- */
 document.addEventListener("click", (e) => {
-  const box = document.getElementById("notificationList");
-  const btn = document.getElementById("notificationButton");
+  const dropdown = document.getElementById("notificationDropdown");
+  const btn = document.querySelector('[onclick="toggleNotifications()"]') || document.getElementById("notificationButton");
 
-  if (!box || !btn) return;
+  if (!dropdown || !btn) return;
 
-  if (!btn.contains(e.target) && !box.contains(e.target))
-    box.classList.add("hidden");
+  if (!btn.contains(e.target) && !dropdown.contains(e.target))
+    dropdown.classList.add("hidden");
 });
 /* ---------------- FINAL FALLBACKS & SAFETY ---------------- */
 
@@ -933,6 +1082,8 @@ document.addEventListener("keydown", (e) => {
     document.getElementById("roomModal")?.classList.add("hidden");
     document.getElementById("paymentModal")?.classList.add("hidden");
     document.getElementById("customerModal")?.classList.add("hidden");
+    document.getElementById("allCustomersModal")?.classList.add("hidden");
+    document.getElementById("notificationDropdown")?.classList.add("hidden");
   }
 });
 
