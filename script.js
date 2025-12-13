@@ -1,12 +1,10 @@
 /* ---------------------------------------------------
-   FINAL UPDATED SCRIPT.JS
-   Fixes:
-   - Persist payments to server by POSTing { amount, mode, roomId } whenever paid amount increases
-   - Ensure payment modal posts correctly (not the entire payments object)
-   - Keep localStorage fallback when server is unreachable
-   - Added modal/helper functions that were referenced from HTML but missing:
-     openAllCustomersModal, closeAllCustomersModal, closeModal, closePaymentModal,
-     closeCustomerModal, toggleNotifications, clearAllNotifications
+   UPDATED SCRIPT.JS
+   Changes to satisfy:
+   - When a room's status is changed from "occupied" to "available" or "maintenance",
+     the room's customer fields shown in the room modal are cleared.
+   - The customer database (customersDB / data.json) is NOT modified.
+   - Prevents accidental posting of payment differences when releasing a room.
 --------------------------------------------------- */
 
 const API_BASE = "https://srinikamalnkb.onrender.com";
@@ -427,12 +425,36 @@ function openRoomModal(roomId) {
   document.getElementById("roomModal")?.classList.remove("hidden");
 }
 
+/* When status changes in the modal, hide and CLEAR the customer inputs if not occupied */
 document
   .getElementById("roomStatus")
   ?.addEventListener("change", function () {
     const block = document.getElementById("customerDetails");
     if (block)
       block.style.display = this.value === "occupied" ? "block" : "none";
+
+    if (this.value !== "occupied") {
+      // Clear modal customer inputs immediately (UI only). The save handler will persist the cleared state to the room.
+      const fieldsToClear = [
+        "customerName",
+        "aadharNumber",
+        "phoneNumber",
+        "checkinTime",
+        "checkoutTime",
+        "paymentMode",
+      ];
+      fieldsToClear.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+      });
+      const numEl = document.getElementById("numberOfPersons");
+      if (numEl) numEl.value = 1;
+      const paidEl = document.getElementById("paidAmount");
+      if (paidEl) paidEl.value = 0;
+
+      // Recalculate totals shown in modal
+      calculateTotalAmount();
+    }
   });
 
 /* ---------------- CALCULATE TOTAL ---------------- */
@@ -487,13 +509,13 @@ document
     const price =
       Number(document.getElementById("roomPrice")?.value) || 0;
 
-    const customerName =
+    let customerName =
       document.getElementById("customerName")?.value?.trim() || "";
-    const numberOfPersons =
+    let numberOfPersons =
       Number(document.getElementById("numberOfPersons")?.value) || 1;
-    const aadharNumber =
+    let aadharNumber =
       document.getElementById("aadharNumber")?.value?.trim() || "";
-    const phoneNumber =
+    let phoneNumber =
       document.getElementById("phoneNumber")?.value?.trim() || "";
     const checkinTime =
       document.getElementById("checkinTime")?.value || "";
@@ -501,16 +523,32 @@ document
       document.getElementById("checkoutTime")?.value || "";
     const paymentMode =
       document.getElementById("paymentMode")?.value || "";
-    const paidAmount =
+    let paidAmount =
       Number(document.getElementById("paidAmount")?.value) || 0;
 
     /* -------------------------------
        UPDATED: Persist the difference to server as a payment record
        ------------------------------- */
 
+    // If room is being released (not occupied), we clear the customer/payment inputs for the room,
+    // and avoid posting any payment changes. The customer DB remains untouched.
+    if (status !== "occupied") {
+      // force clear values so we don't accidentally post or keep previous paid amounts
+      customerName = "";
+      numberOfPersons = 1;
+      aadharNumber = "";
+      phoneNumber = "";
+      paidAmount = 0;
+    }
+
     let previousPaid = rooms[idx].paidAmount || 0;
     let newPaid = paidAmount;
     let addedAmount = newPaid - previousPaid;
+
+    // prevent posting when releasing the room (we cleared paidAmount above)
+    if (status !== "occupied") {
+      addedAmount = 0;
+    }
 
     if (addedAmount > 0) {
       // Try to POST the added payment to the server so data.json is updated
@@ -589,7 +627,22 @@ document
       dueAmount,
     };
 
+    // IMPORTANT: if the room is not occupied, ensure all customer-related fields are explicitly cleared
+    if (status !== "occupied") {
+      updatedRoom.customerName = "";
+      updatedRoom.numberOfPersons = 1;
+      updatedRoom.aadharNumber = "";
+      updatedRoom.phoneNumber = "";
+      updatedRoom.checkinTime = "";
+      updatedRoom.checkoutTime = "";
+      updatedRoom.paymentMode = "";
+      updatedRoom.totalAmount = 0;
+      updatedRoom.paidAmount = 0;
+      updatedRoom.dueAmount = 0;
+    }
+
     /* ---------------- CUSTOMER DB ---------------- */
+    // Only add/update customer DB when room is occupied with an Aadhar.
     if (status === "occupied" && aadharNumber) {
       let c = customersDB.find((x) => x.aadhar === aadharNumber);
 
@@ -639,6 +692,7 @@ document
       document.getElementById("roomModal")?.classList.add("hidden");
       showNotification("Room updated", "success");
     } catch (err) {
+      // Best-effort: persist locally even if server is offline
       rooms[idx] = updatedRoom;
       saveLocal();
       applyDataToUI();
@@ -819,21 +873,17 @@ function loadNotifications() {
   });
 }
 
-/* Notification toggle function referenced by HTML */
 function toggleNotifications() {
   const dropdown = document.getElementById("notificationDropdown");
   if (dropdown) {
     dropdown.classList.toggle("hidden");
-    // ensure notifications are loaded/refreshed
     loadNotifications();
   } else {
-    // fallback to old element id if present
     const list = document.getElementById("notificationList");
     if (list) list.classList.toggle("hidden");
   }
 }
 
-/* Clear notifications (owner-only action) */
 async function clearAllNotifications() {
   if (!confirm("Clear all notifications? This cannot be undone.")) return;
 
@@ -845,7 +895,6 @@ async function clearAllNotifications() {
     loadNotifications();
     showNotification("Notifications cleared", "success");
   } catch (err) {
-    // best-effort local clear if server fails for any reason but user is owner
     notifications = [];
     saveLocal();
     updateNotificationBadge();
@@ -919,14 +968,13 @@ document
       ?.classList.add("hidden");
   });
 
-/* ---------------- ALL CUSTOMERS MODAL (was missing) ---------------- */
+/* ---------------- ALL CUSTOMERS MODAL ---------------- */
 function openAllCustomersModal() {
   const modal = document.getElementById("allCustomersModal");
   const table = document.getElementById("allCustomersTable");
   const noEl = document.getElementById("noCustomersFound");
   if (!modal || !table) return;
 
-  // build table
   function renderList(list) {
     table.innerHTML = "";
     if (!list || !list.length) {
@@ -954,7 +1002,6 @@ function openAllCustomersModal() {
 
   renderList(customersDB);
 
-  // search
   const search = document.getElementById("customerSearch");
   if (search) {
     search.oninput = () => {
@@ -976,7 +1023,6 @@ function closeAllCustomersModal() {
   document.getElementById("allCustomersModal")?.classList.add("hidden");
 }
 
-/* helper used by customers table 'View' action */
 function viewCustomerDetailsForAadhar(aadhar) {
   if (!aadhar) return;
   const customer = customersDB.find((c) => c.aadhar === aadhar);
@@ -985,17 +1031,13 @@ function viewCustomerDetailsForAadhar(aadhar) {
     return;
   }
 
-  // if customer has history, open room modal for the last booking's room if possible
   if (customer.history && customer.history.length) {
     const last = customer.history[customer.history.length - 1];
     if (last && last.roomId) {
-      // open room modal for that room (if exists)
       openRoomModal(Number(last.roomId));
-      // Also pre-fill customer details view if needed
     }
   }
 
-  // open dedicated customer modal too
   document.getElementById("custName").textContent = customer.name || "-";
   document.getElementById("custAadhar").textContent = customer.aadhar || "-";
   document.getElementById("custPhone").textContent = customer.phoneNumber || "-";
@@ -1103,4 +1145,4 @@ if (!payments || typeof payments !== "object") {
   saveLocal();
 }
 
-/* ---------------- END OF FINAL SCRIPT.JS ---------------- */
+/* ---------------- END OF SCRIPT.JS ---------------- */
