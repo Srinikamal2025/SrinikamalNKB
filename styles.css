@@ -17,3 +17,44 @@
 @media (max-width: 768px) {
   .room-box { padding: 12px; }
 }
+
+/* Mobile header spacing improvements
+   - On small screens stack header content so the right-side action buttons (View Customers, Notifications, Logout)
+     sit a little lower (not cramped) while keeping all functionality intact.
+*/
+@media (max-width: 640px) {
+  /* Make the header's main row stack vertically */
+  header .container > div.flex {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  /* Right-side action group should span full width and be placed below the title block */
+  header .container > div.flex > .flex.items-center.space-x-4 {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+  }
+
+  /* Give the individual action buttons a little breathing room when stacked */
+  header .container > div.flex > .flex.items-center.space-x-4 button,
+  header .container > div.flex > .flex.items-center.space-x-4 .relative {
+    margin-top: 0.25rem;
+  }
+
+  /* Ensure notification dropdown aligns to the right on narrow screens */
+  #notificationDropdown {
+    right: 0;
+    left: auto;
+    width: calc(100% - 2rem);
+    max-width: 320px;
+  }
+
+  /* Slightly increase header padding for visual separation on mobile */
+  header .container {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+}
