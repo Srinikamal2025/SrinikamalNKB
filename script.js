@@ -1,10 +1,10 @@
 /* ---------------------------------------------------
-   UPDATED SCRIPT.JS
-   Changes to satisfy:
-   - When a room's status is changed from "occupied" to "available" or "maintenance",
-     the room's customer fields shown in the room modal are cleared.
-   - The customer database (customersDB / data.json) is NOT modified.
-   - Prevents accidental posting of payment differences when releasing a room.
+   COMPLETE UPDATED script.js
+   - Uses the custom ROOM_NUMBERS scheme (102-106, 201-208, 301-308, 401-408)
+   - Adds updateTotalRooms() and updates the header dynamically
+   - Keeps previous fixes: missing modal helpers, payment persistence, localStorage fallback,
+     clearing customer info when releasing a room, socket integration, etc.
+   - Includes a small showNotification helper so notifications work without external code.
 --------------------------------------------------- */
 
 const API_BASE = "https://srinikamalnkb.onrender.com";
@@ -142,10 +142,18 @@ function saveLocal() {
 
 loadLocal();
 
-/* Initialize rooms if empty */
+/* --- Initialize rooms with the custom scheme (replace previous init block) --- */
+// desired room numbers (matches requested scheme)
+const ROOM_NUMBERS = [
+  ...Array.from({ length: 5 }, (_, i) => 102 + i),   // 102-106
+  ...Array.from({ length: 8 }, (_, i) => 201 + i),   // 201-208
+  ...Array.from({ length: 8 }, (_, i) => 301 + i),   // 301-308
+  ...Array.from({ length: 8 }, (_, i) => 401 + i),   // 401-408
+];
+
 if (!rooms.length) {
-  rooms = Array.from({ length: 29 }, (_, i) => ({
-    id: i + 1,
+  rooms = ROOM_NUMBERS.map((roomId) => ({
+    id: roomId,
     status: "available",
     price: 1500,
     customerName: "",
@@ -273,6 +281,7 @@ function applyDataToUI() {
   updateTotalDue();
   updateNotificationBadge();
   loadNotifications();
+  updateTotalRooms(); // update header count
 }
 
 /* ---------------- RENDER ROOMS ---------------- */
@@ -354,6 +363,12 @@ function updateTotalDue() {
 
   const totalDue = document.getElementById("totalDue");
   if (totalDue) totalDue.textContent = `₹${total}`;
+}
+
+/* ---------------- TOTAL ROOMS (header) ---------------- */
+function updateTotalRooms() {
+  const el = document.getElementById("totalRooms");
+  if (el) el.textContent = rooms.length;
 }
 
 /* ---------------- DUE TABLE ---------------- */
@@ -1066,6 +1081,7 @@ function logout() {
   window.location.reload();
 }
 
+// some templates use onclick="logout()", some use id; support both
 document.getElementById("logoutBtn")?.addEventListener("click", logout);
 
 /* ---------------- ESCAPE HTML ---------------- */
@@ -1101,7 +1117,7 @@ document
 /* ---------------- CLOSE NOTIFICATION DROPDOWN WHEN CLICK OUTSIDE ---------------- */
 document.addEventListener("click", (e) => {
   const dropdown = document.getElementById("notificationDropdown");
-  const btn = document.querySelector('[onclick="toggleNotifications()"]') || document.getElementById("notificationButton");
+  const btn = document.getElementById("notificationButton") || document.querySelector('[onclick="toggleNotifications()"]');
 
   if (!dropdown || !btn) return;
 
@@ -1143,6 +1159,38 @@ if (!payments || typeof payments !== "object") {
     monthRevenue: 0,
   };
   saveLocal();
+}
+
+/* ---------------- Simple showNotification helper ----------------
+   Creates a small toast in the bottom-right corner and removes it after 3s.
+   Usage: showNotification("message", "success"|"error"|"info")
+*/
+function showNotification(message, type = "info") {
+  try {
+    const colors = {
+      success: "bg-green-500",
+      error: "bg-red-500",
+      info: "bg-blue-500",
+    };
+    const toast = document.createElement("div");
+    toast.className = `fixed right-4 bottom-8 z-60 text-white px-4 py-2 rounded shadow ${colors[type] || colors.info}`;
+    toast.style.opacity = "0";
+    toast.style.transition = "opacity 0.2s ease";
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => {
+      toast.style.opacity = "1";
+    });
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      setTimeout(() => {
+        try { document.body.removeChild(toast); } catch {}
+      }, 250);
+    }, 3000);
+  } catch (e) {
+    // fallback
+    console.log(type.toUpperCase(), message);
+  }
 }
 
 /* ---------------- END OF SCRIPT.JS ---------------- */
