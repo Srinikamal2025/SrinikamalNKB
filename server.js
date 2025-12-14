@@ -1,6 +1,6 @@
 // server.js - Render / Cyclic / Fly / local ready
 // Simple file-backed hotel backend with JWT + Socket.IO
-// Updated: ensure room name/price persist reliably across restarts (atomic writes + defaults)
+// Updated: protect owner-only fields (name/price) from being overwritten by other clients
 
 const fs = require('fs');
 const path = require('path');
@@ -58,11 +58,9 @@ function ensureRoomDefaults(data) {
     room.dueAmount = Number(room.dueAmount) || 0;
     room.numberOfPersons = Number(room.numberOfPersons) || 1;
     room.status = room.status || 'available';
-    // keep other fields as-is
     return room;
   });
 
-  // payments default shape
   data.payments = data.payments || { cash: 0, upi: 0, dayRevenue: 0, monthRevenue: 0 };
   data.customers = data.customers || [];
   data.notifications = data.notifications || [];
@@ -113,7 +111,6 @@ function readData() {
       notifications: []
     };
 
-    // If file missing or malformed, try to create a valid data.json so changes persist across restarts
     try {
       writeData(defaultData);
       console.info('Created default data.json');
@@ -168,13 +165,12 @@ app.post('/api/login', (req, res) => {
 // Get all rooms (authenticated)
 app.get('/api/rooms', authMiddleware, (req, res) => {
   const data = readData();
-  // Ensure every room has a name/price before sending
   ensureRoomDefaults(data);
   return res.json(data.rooms || []);
 });
 
 // Update a room (authenticated)
-// Manager and Owner can update rooms; server trusts auth to decide further logic if needed.
+// Manager and Owner can update rooms; server enforces owner-only fields (name, price) server-side to avoid accidental overwrites
 app.put('/api/rooms/:id', authMiddleware, (req, res) => {
   const roomId = parseInt(req.params.id);
   if (Number.isNaN(roomId)) return res.status(400).json({ error: 'Invalid room id' });
@@ -184,7 +180,29 @@ app.put('/api/rooms/:id', authMiddleware, (req, res) => {
   const idx = (data.rooms || []).findIndex(r => r.id === roomId);
   if (idx === -1) return res.status(404).json({ error: 'Room not found' });
 
-  // Basic sanitation: only accept fields we expect
+  // SECURITY: owner-only fields - ignore attempts to change them if caller is not Owner
+  if (payload.hasOwnProperty('name') && req.user.role !== 'Owner') {
+    // ignore name change from non-owner clients
+    delete payload.name;
+  } else if (payload.hasOwnProperty('name')) {
+    // sanitize name - avoid empty names overwriting
+    const n = String(payload.name || '').trim();
+    if (!n) delete payload.name;
+    else payload.name = n;
+  }
+
+  if (payload.hasOwnProperty('price') && req.user.role !== 'Owner') {
+    // ignore price change from non-owner clients
+    delete payload.price;
+  } else if (payload.hasOwnProperty('price')) {
+    payload.price = Number(payload.price) || 0;
+    if (payload.price <= 0) {
+      // invalid price - remove it so we don't overwrite with 0
+      delete payload.price;
+    }
+  }
+
+  // Basic sanitation: only accept fields we expect (after owner checks)
   const allowed = ['name','status','price','customerName','numberOfPersons','aadharNumber','phoneNumber','checkinTime','checkoutTime','paymentMode','totalAmount','paidAmount','dueAmount'];
   allowed.forEach(k => {
     if (k in payload) {
@@ -204,7 +222,6 @@ app.put('/api/rooms/:id', authMiddleware, (req, res) => {
   const ok = writeData(data);
   if (!ok) {
     console.warn('Failed to persist room update to disk — changes will be lost on restart');
-    // still broadcast in-memory state so connected clients see updates
     io.emit('roomsUpdated', data.rooms);
     return res.status(500).json({ ok: false, error: 'Failed to persist data' });
   }
@@ -217,16 +234,13 @@ app.put('/api/rooms/:id', authMiddleware, (req, res) => {
 // Payments endpoints
 app.get('/api/payments', authMiddleware, (req, res) => {
   const data = readData();
-  // Only owner should access full payments; manager gets a subset
   if (req.user.role === 'Owner') return res.json(data.payments || {});
-  // manager gets totals without breakdown
   const p = data.payments || {};
   return res.json({ dayRevenue: p.dayRevenue || 0, monthRevenue: p.monthRevenue || 0 });
 });
 
 // Add a payment (Owner or Manager)
 app.post('/api/payments', authMiddleware, (req, res) => {
-  // Allow both Owner and Manager to add payments
   if (!req.user || (req.user.role !== 'Owner' && req.user.role !== 'Manager')) {
     return res.status(403).json({ error: 'Forbidden: insufficient role' });
   }
@@ -240,12 +254,10 @@ app.post('/api/payments', authMiddleware, (req, res) => {
   if (mode && String(mode).toLowerCase() === 'upi') data.payments.upi = (data.payments.upi || 0) + amt;
   else data.payments.cash = (data.payments.cash || 0) + amt;
 
-  // update day/month revenue roughly
   data.payments.dayRevenue = (data.payments.dayRevenue || 0) + amt;
   data.payments.monthRevenue = (data.payments.monthRevenue || 0) + amt;
   data.payments.lastUpdated = new Date().toISOString();
 
-  // Optionally add a notification (if message present)
   if (message) {
     data.notifications = data.notifications || [];
     data.notifications.push({ message, timestamp: new Date().toISOString() });
@@ -279,7 +291,6 @@ app.post('/api/payments', authMiddleware, (req, res) => {
 app.get('/api/customers', authMiddleware, (req, res) => {
   const data = readData();
   if (req.user.role === 'Owner') return res.json(data.customers || []);
-  // manager gets count only
   return res.json({ count: (data.customers || []).length });
 });
 
@@ -289,7 +300,6 @@ app.post('/api/customers', authMiddleware, (req, res) => {
   const data = readData();
   data.customers = data.customers || [];
 
-  // basic create
   const id = Date.now().toString(36);
   const customer = { id, ...payload, createdAt: new Date().toISOString() };
   data.customers.push(customer);
