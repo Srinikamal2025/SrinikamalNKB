@@ -1,6 +1,7 @@
 /* ---------------------------------------------------
    UPDATED SCRIPT.JS
-   Adds Owner-only room rename functionality
+   Prevent non-Owner sessions from overwriting Owner-only fields (name, price)
+   and merge incoming socket updates without clobbering local Owner edits.
 --------------------------------------------------- */
 
 const API_BASE = "https://srinikamalnkb.onrender.com";
@@ -65,12 +66,33 @@ function connectSocket() {
     auth: { token: getToken() },
   });
 
+  // When server emits roomsUpdated, merge carefully:
+  // - If current session is NOT Owner, preserve local name/price to avoid accidental overwrites.
   socket.on("roomsUpdated", (r) => {
-    if (Array.isArray(r)) {
+    if (!Array.isArray(r)) return;
+
+    // If we're Owner, accept server state fully.
+    if (getRole() === "Owner") {
       rooms = r;
       saveLocal();
       applyDataToUI();
+      return;
     }
+
+    // For non-Owner sessions (Manager / anonymous), merge per-room preserving local owner fields.
+    const merged = (r || []).map((srvRoom) => {
+      const local = (rooms || []).find((lr) => lr.id === srvRoom.id) || {};
+      // preserve local.name/local.price if present (likely Owner set them previously in this browser)
+      return {
+        ...srvRoom,
+        name: local.name || srvRoom.name || `Room ${srvRoom.id}`,
+        price: typeof local.price !== "undefined" ? local.price : (srvRoom.price || 1500),
+      };
+    });
+
+    rooms = merged;
+    saveLocal();
+    applyDataToUI();
   });
 
   socket.on("paymentsUpdated", (p) => {
@@ -194,6 +216,8 @@ document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
 
     if (d.role === "Owner")
       document.getElementById("dashboardScreen")?.classList.add("owner-visible");
+    else
+      document.getElementById("dashboardScreen")?.classList.remove("owner-visible");
 
     const roleDisplay = document.getElementById("userRole");
     if (roleDisplay) roleDisplay.textContent = d.role;
@@ -216,6 +240,10 @@ if (getToken()) {
     document
       .getElementById("dashboardScreen")
       ?.classList.add("owner-visible");
+  else
+    document
+      .getElementById("dashboardScreen")
+      ?.classList.remove("owner-visible");
 
   const roleDisplay = document.getElementById("userRole");
   if (roleDisplay) roleDisplay.textContent = getRole();
@@ -229,13 +257,20 @@ async function loadInitialData() {
     const r = await fetchWithAuth(`${API}/rooms`);
     if (r.ok) {
       const serverRooms = await r.json();
-      // Keep local names if server doesn't provide name (fallback). Merge server values into local rooms list.
+      // Use server values but preserve local name/price for non-Owner sessions
       if (Array.isArray(serverRooms) && serverRooms.length) {
-        // Use server rooms but preserve existing name property if server doesn't have it
-        rooms = serverRooms.map((sr) => {
-          const local = (rooms || []).find((lr) => lr.id === sr.id) || {};
-          return { name: sr.name || local.name || `Room ${sr.id}`, ...sr };
-        });
+        if (getRole() === "Owner") {
+          rooms = serverRooms.map((sr) => ({ name: sr.name || `Room ${sr.id}`, ...sr }));
+        } else {
+          rooms = serverRooms.map((sr) => {
+            const local = (rooms || []).find((lr) => lr.id === sr.id) || {};
+            return {
+              name: local.name || sr.name || `Room ${sr.id}`,
+              price: typeof local.price !== "undefined" ? local.price : (sr.price || 1500),
+              ...sr,
+            };
+          });
+        }
       } else {
         // no server rooms -> leave local
       }
@@ -706,14 +741,37 @@ document
 
     /* ---------------- SAVE ROOM ---------------- */
     try {
+      // Build payload: strip Owner-only fields if current session is not Owner.
+      const payload = { ...updatedRoom };
+      if (getRole() !== "Owner") {
+        delete payload.name;
+        delete payload.price;
+      }
+
       const response = await fetchWithAuth(`${API}/rooms/${roomId}`, {
         method: "PUT",
-        body: updatedRoom,
+        body: payload,
       });
 
       if (!response.ok) throw new Error("Server failed");
 
-      rooms[idx] = updatedRoom;
+      // Merge server-acknowledged changes into local model.
+      // If response contains room, use that; otherwise fallback to our updatedRoom.
+      const respJson = await response.json().catch(() => null);
+      const serverRoom = respJson && respJson.room ? respJson.room : null;
+
+      // Keep owner-only fields locally if we're non-owner (preserve them)
+      if (getRole() === "Owner") {
+        rooms[idx] = serverRoom || updatedRoom;
+      } else {
+        // merge but preserve local name/price
+        rooms[idx] = {
+          ...(serverRoom || updatedRoom),
+          name: rooms[idx].name || (serverRoom && serverRoom.name) || updatedRoom.name,
+          price: typeof rooms[idx].price !== "undefined" ? rooms[idx].price : (serverRoom && serverRoom.price) || updatedRoom.price,
+        };
+      }
+
       saveLocal();
       applyDataToUI();
 
@@ -844,10 +902,18 @@ document
     applyDataToUI();
 
     // PUT the room to server (best-effort)
-    fetchWithAuth(`${API}/rooms/${roomId}`, {
-      method: "PUT",
-      body: rooms[idx],
-    }).catch(() => {});
+    // Ensure non-Owners don't send name/price
+    try {
+      const payload = { ...rooms[idx] };
+      if (getRole() !== "Owner") {
+        delete payload.name;
+        delete payload.price;
+      }
+      fetchWithAuth(`${API}/rooms/${roomId}`, {
+        method: "PUT",
+        body: payload,
+      }).catch(() => {});
+    } catch {}
 
     document.getElementById("paymentModal")?.classList.add("hidden");
     showNotification("Payment updated", "success");
