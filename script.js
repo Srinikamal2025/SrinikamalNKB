@@ -1,10 +1,10 @@
 /* ---------------------------------------------------
-   COMPLETE UPDATED script.js
-   - Uses the custom ROOM_NUMBERS scheme (102-106, 201-208, 301-308, 401-408)
-   - Adds updateTotalRooms() and updates the header dynamically
-   - Keeps previous fixes: missing modal helpers, payment persistence, localStorage fallback,
-     clearing customer info when releasing a room, socket integration, etc.
-   - Includes a small showNotification helper so notifications work without external code.
+   FINAL SCRIPT.JS (modified)
+   - Uses custom ROOM_NUMBERS scheme (102-106, 201-208, 301-308, 401-408)
+   - Clears customer info when room status changes to non-occupied
+   - Adds missing UI helper functions (openAllCustomersModal, closeAllCustomersModal, closeModal, closePaymentModal, closeCustomerModal, toggleNotifications, clearAllNotifications, viewCustomerDetailsForAadhar)
+   - Adds updateTotalRooms() and updates the header total dynamically
+   - Keeps existing payment/room/customer logic and localStorage fallback
 --------------------------------------------------- */
 
 const API_BASE = "https://srinikamalnkb.onrender.com";
@@ -281,7 +281,7 @@ function applyDataToUI() {
   updateTotalDue();
   updateNotificationBadge();
   loadNotifications();
-  updateTotalRooms(); // update header count
+  updateTotalRooms(); // update header total rooms count
 }
 
 /* ---------------- RENDER ROOMS ---------------- */
@@ -1081,7 +1081,6 @@ function logout() {
   window.location.reload();
 }
 
-// some templates use onclick="logout()", some use id; support both
 document.getElementById("logoutBtn")?.addEventListener("click", logout);
 
 /* ---------------- ESCAPE HTML ---------------- */
@@ -1117,7 +1116,7 @@ document
 /* ---------------- CLOSE NOTIFICATION DROPDOWN WHEN CLICK OUTSIDE ---------------- */
 document.addEventListener("click", (e) => {
   const dropdown = document.getElementById("notificationDropdown");
-  const btn = document.getElementById("notificationButton") || document.querySelector('[onclick="toggleNotifications()"]');
+  const btn = document.querySelector('[onclick="toggleNotifications()"]') || document.getElementById("notificationButton");
 
   if (!dropdown || !btn) return;
 
@@ -1159,38 +1158,6 @@ if (!payments || typeof payments !== "object") {
     monthRevenue: 0,
   };
   saveLocal();
-}
-
-/* ---------------- Simple showNotification helper ----------------
-   Creates a small toast in the bottom-right corner and removes it after 3s.
-   Usage: showNotification("message", "success"|"error"|"info")
-*/
-function showNotification(message, type = "info") {
-  try {
-    const colors = {
-      success: "bg-green-500",
-      error: "bg-red-500",
-      info: "bg-blue-500",
-    };
-    const toast = document.createElement("div");
-    toast.className = `fixed right-4 bottom-8 z-60 text-white px-4 py-2 rounded shadow ${colors[type] || colors.info}`;
-    toast.style.opacity = "0";
-    toast.style.transition = "opacity 0.2s ease";
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    requestAnimationFrame(() => {
-      toast.style.opacity = "1";
-    });
-    setTimeout(() => {
-      toast.style.opacity = "0";
-      setTimeout(() => {
-        try { document.body.removeChild(toast); } catch {}
-      }, 250);
-    }, 3000);
-  } catch (e) {
-    // fallback
-    console.log(type.toUpperCase(), message);
-  }
 }
 
 /* ---------------- END OF SCRIPT.JS ---------------- */
