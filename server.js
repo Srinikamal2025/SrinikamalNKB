@@ -120,7 +120,7 @@ app.put('/api/rooms/:id', authMiddleware, (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'Room not found' });
 
   // Basic sanitation: only accept fields we expect
-  const allowed = ['status','price','customerName','numberOfPersons','aadharNumber','phoneNumber','checkinTime','checkoutTime','paymentMode','totalAmount','paidAmount','dueAmount'];
+  const allowed = ['name','status','price','customerName','numberOfPersons','aadharNumber','phoneNumber','checkinTime','checkoutTime','paymentMode','totalAmount','paidAmount','dueAmount'];
   allowed.forEach(k => { if (k in payload) data.rooms[idx][k] = payload[k]; });
 
   writeData(data);

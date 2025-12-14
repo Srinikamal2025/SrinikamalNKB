@@ -1,10 +1,6 @@
 /* ---------------------------------------------------
-   FINAL SCRIPT.JS (modified)
-   - Uses custom ROOM_NUMBERS scheme (102-106, 201-208, 301-308, 401-408)
-   - Clears customer info when room status changes to non-occupied
-   - Adds missing UI helper functions (openAllCustomersModal, closeAllCustomersModal, closeModal, closePaymentModal, closeCustomerModal, toggleNotifications, clearAllNotifications, viewCustomerDetailsForAadhar)
-   - Adds updateTotalRooms() and updates the header total dynamically
-   - Keeps existing payment/room/customer logic and localStorage fallback
+   UPDATED SCRIPT.JS
+   Adds Owner-only room rename functionality
 --------------------------------------------------- */
 
 const API_BASE = "https://srinikamalnkb.onrender.com";
@@ -142,18 +138,11 @@ function saveLocal() {
 
 loadLocal();
 
-/* --- Initialize rooms with the custom scheme (replace previous init block) --- */
-// desired room numbers (matches requested scheme)
-const ROOM_NUMBERS = [
-  ...Array.from({ length: 5 }, (_, i) => 102 + i),   // 102-106
-  ...Array.from({ length: 8 }, (_, i) => 201 + i),   // 201-208
-  ...Array.from({ length: 8 }, (_, i) => 301 + i),   // 301-308
-  ...Array.from({ length: 8 }, (_, i) => 401 + i),   // 401-408
-];
-
+/* Initialize rooms if empty */
 if (!rooms.length) {
-  rooms = ROOM_NUMBERS.map((roomId) => ({
-    id: roomId,
+  rooms = Array.from({ length: 29 }, (_, i) => ({
+    id: i + 1,
+    name: `Room ${i + 1}`,
     status: "available",
     price: 1500,
     customerName: "",
@@ -238,18 +227,28 @@ if (getToken()) {
 async function loadInitialData() {
   try {
     const r = await fetchWithAuth(`${API}/rooms`);
-    if (r.ok) rooms = await r.json();
+    if (r.ok) {
+      const serverRooms = await r.json();
+      // Keep local names if server doesn't provide name (fallback). Merge server values into local rooms list.
+      if (Array.isArray(serverRooms) && serverRooms.length) {
+        // Use server rooms but preserve existing name property if server doesn't have it
+        rooms = serverRooms.map((sr) => {
+          const local = (rooms || []).find((lr) => lr.id === sr.id) || {};
+          return { name: sr.name || local.name || `Room ${sr.id}`, ...sr };
+        });
+      } else {
+        // no server rooms -> leave local
+      }
+    }
   } catch {}
 
   try {
     const p = await fetchWithAuth(`${API}/payments`);
     if (p.ok) {
       const json = await p.json();
-      // Payments endpoint may return object with breakdown or limited view; normalize
       if (json && typeof json === 'object' && ('cash' in json || 'upi' in json || 'dayRevenue' in json || 'monthRevenue' in json)) {
         payments = json;
       } else if (json && typeof json === 'object') {
-        // If manager sees limited data, merge with existing local payments
         payments.dayRevenue = json.dayRevenue || payments.dayRevenue || 0;
         payments.monthRevenue = json.monthRevenue || payments.monthRevenue || 0;
       }
@@ -281,7 +280,6 @@ function applyDataToUI() {
   updateTotalDue();
   updateNotificationBadge();
   loadNotifications();
-  updateTotalRooms(); // update header total rooms count
 }
 
 /* ---------------- RENDER ROOMS ---------------- */
@@ -302,10 +300,12 @@ function renderRooms() {
     if (room.status === "occupied") icon = '<i class="fas fa-user text-2xl mb-2"></i>';
     if (room.status === "maintenance") icon = '<i class="fas fa-tools text-2xl mb-2"></i>';
 
+    const displayName = room.name || `Room ${room.id}`;
+
     div.innerHTML = `
       <div class="text-center">
         ${icon}
-        <p class="font-bold">Room ${room.id}</p>
+        <p class="font-bold">${escapeHtml(displayName)}</p>
         <p class="text-xs mt-1 capitalize">${room.status}</p>
         <p class="text-xs mt-1">₹${room.price}/day</p>
         ${room.customerName ? `<p class="text-xs mt-1 truncate">${escapeHtml(room.customerName)}</p>` : ""}
@@ -365,12 +365,6 @@ function updateTotalDue() {
   if (totalDue) totalDue.textContent = `₹${total}`;
 }
 
-/* ---------------- TOTAL ROOMS (header) ---------------- */
-function updateTotalRooms() {
-  const el = document.getElementById("totalRooms");
-  if (el) el.textContent = rooms.length;
-}
-
 /* ---------------- DUE TABLE ---------------- */
 function updateDueTable() {
   const table = document.getElementById("duePaymentsTable");
@@ -425,6 +419,18 @@ function openRoomModal(roomId) {
   document.getElementById("checkoutTime").value = room.checkoutTime || "";
   document.getElementById("paymentMode").value = room.paymentMode || "";
   document.getElementById("paidAmount").value = room.paidAmount || 0;
+
+  // Room name (owner only). Use explicit wrapper to control visibility even though modal is outside dashboard area.
+  const roomNameInput = document.getElementById("roomName");
+  const roomNameWrapper = document.getElementById("roomNameWrapper");
+  if (roomNameInput) roomNameInput.value = room.name || `Room ${room.id}`;
+  if (roomNameWrapper) {
+    if (getRole() === "Owner") {
+      roomNameWrapper.style.display = "block";
+    } else {
+      roomNameWrapper.style.display = "none";
+    }
+  }
 
   const customerDetails = document.getElementById("customerDetails");
   if (customerDetails)
@@ -523,6 +529,11 @@ document
     const status = document.getElementById("roomStatus")?.value || "available";
     const price =
       Number(document.getElementById("roomPrice")?.value) || 0;
+
+    // Allow owner to provide a custom name; otherwise preserve existing name
+    const submittedName = document.getElementById("roomName")?.value?.trim();
+    const currentName = rooms[idx].name || `Room ${roomId}`;
+    const roomNameToSave = getRole() === "Owner" && submittedName ? submittedName : currentName;
 
     let customerName =
       document.getElementById("customerName")?.value?.trim() || "";
@@ -628,6 +639,8 @@ document
 
     const updatedRoom = {
       ...rooms[idx],
+      // update name only (persist) if owner; otherwise preserve existing name
+      name: roomNameToSave,
       status,
       price,
       customerName,

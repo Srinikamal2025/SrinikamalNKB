@@ -7,67 +7,473 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
+    <!-- socket.io client is expected at /socket.io/socket.io.js served by your Node server -->
 </head>
 <body class="bg-gray-100 min-h-screen">
+    <!-- Login Screen -->
+    <div id="loginScreen" class="min-h-screen flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-md fade-in">
+            <div class="text-center mb-8">
+                <i class="fas fa-hotel text-5xl text-blue-600 mb-4"></i>
+                <h1 class="text-3xl font-bold text-gray-800">Srini Kamal Residency</h1>
+                <p class="text-gray-600 mt-2">Hotel Management System</p>
+                <p class="text-gray-500 mt-1">Please login to continue</p>
+            </div>
+            
+            <form id="loginForm" class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                    <input type="text" id="username" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Enter username" required>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                    <input type="password" id="password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Enter password" required>
+                </div>
+                
+                <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-200 font-medium">
+                    <i class="fas fa-sign-in-alt mr-2"></i>Login
+                </button>
+            </form>
+        </div>
+    </div>
 
-<!-- LOGIN -->
-<div id="loginScreen" class="min-h-screen flex items-center justify-center p-4">
-  <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-md fade-in">
-    <h1 class="text-2xl font-bold text-center mb-6">Login</h1>
-    <form id="loginForm" class="space-y-4">
-      <input id="username" placeholder="Username" class="w-full px-4 py-2 border rounded">
-      <input id="password" type="password" placeholder="Password" class="w-full px-4 py-2 border rounded">
-      <button class="w-full bg-blue-600 text-white py-2 rounded">Login</button>
-    </form>
-  </div>
-</div>
+    <!-- Dashboard Screen -->
+    <div id="dashboardScreen" class="hidden">
+        <!-- Header -->
+        <header class="bg-white shadow-md">
+            <div class="container mx-auto px-4 py-4">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center space-x-4">
+                        <i class="fas fa-hotel text-3xl text-blue-600"></i>
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">Srini Kamal Residency</h1>
+                            <p class="text-sm text-gray-600">Welcome, <span id="userRole" class="font-medium"></span></p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <button onclick="openAllCustomersModal()" class="owner-only bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition duration-200">
+                            <i class="fas fa-users mr-2"></i>View Customers
+                        </button>
+                        <div id="notificationContainer" class="owner-only relative">
+                            <button onclick="toggleNotifications()" class="relative p-2 text-gray-600 hover:text-gray-800">
+                                <i class="fas fa-bell text-xl"></i>
+                                <span id="notificationBadge" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center notification-badge hidden">0</span>
+                            </button>
+                            <div id="notificationDropdown" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg z-50">
+                                <div class="p-4 border-b flex justify-between items-center">
+                                    <h3 class="font-semibold text-gray-800">Notifications</h3>
+                                    <button onclick="clearAllNotifications()" class="text-sm text-red-600 hover:text-red-800">
+                                        <i class="fas fa-trash-alt mr-1"></i>Clear All
+                                    </button>
+                                </div>
+                                <div id="notificationList" class="max-h-96 overflow-y-auto">
+                                    <!-- Notifications will be listed here -->
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition duration-200">
+                            <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
 
-<!-- DASHBOARD -->
-<div id="dashboardScreen" class="hidden">
-<header class="bg-white shadow p-4 flex justify-between">
-  <h2 class="font-bold">Hotel Dashboard</h2>
-  <span id="userRole"></span>
-</header>
+        <!-- Main Content -->
+        <main class="container mx-auto px-4 py-8">
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600 text-sm">Total Rooms</p>
+                            <p class="text-2xl font-bold text-gray-800">29</p>
+                        </div>
+                        <i class="fas fa-door-open text-3xl text-blue-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600 text-sm">Available</p>
+                            <p class="text-2xl font-bold text-green-600" id="availableCount">0</p>
+                        </div>
+                        <i class="fas fa-check-circle text-3xl text-green-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600 text-sm">Occupied</p>
+                            <p class="text-2xl font-bold text-red-600" id="occupiedCount">0</p>
+                        </div>
+                        <i class="fas fa-user-friends text-3xl text-red-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600 text-sm">Maintenance</p>
+                            <p class="text-2xl font-bold text-yellow-600" id="maintenanceCount">0</p>
+                        </div>
+                        <i class="fas fa-tools text-3xl text-yellow-500"></i>
+                    </div>
+                </div>
+            </div>
 
-<main class="p-6">
-  <div id="roomGrid" class="grid grid-cols-2 md:grid-cols-5 gap-4"></div>
-</main>
-</div>
+            <!-- Revenue Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+                <div class="bg-white rounded-lg shadow p-6 owner-only">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600 text-sm">Cash Counter</p>
+                            <p class="text-2xl font-bold text-gray-800" id="cashCounter">₹0</p>
+                        </div>
+                        <i class="fas fa-money-bill-wave text-3xl text-green-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6 owner-only">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600 text-sm">UPI Counter</p>
+                            <p class="text-2xl font-bold text-gray-800" id="upiCounter">₹0</p>
+                        </div>
+                        <i class="fas fa-mobile-alt text-3xl text-blue-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6 owner-only">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600 text-sm">Day's Revenue</p>
+                            <p class="text-2xl font-bold text-gray-800" id="dayRevenue">₹0</p>
+                        </div>
+                        <i class="fas fa-calendar-day text-3xl text-purple-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6 owner-only">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600 text-sm">Monthly Revenue</p>
+                            <p class="text-2xl font-bold text-gray-800" id="monthRevenue">₹0</p>
+                        </div>
+                        <i class="fas fa-calendar-alt text-3xl text-indigo-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6 owner-only">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600 text-sm">Total Due</p>
+                            <p class="text-2xl font-bold text-red-600" id="totalDue">₹0</p>
+                        </div>
+                        <i class="fas fa-exclamation-triangle text-3xl text-red-500"></i>
+                    </div>
+                </div>
+            </div>
 
-<!-- ROOM MODAL -->
-<div id="roomModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center">
-  <div class="bg-white p-6 rounded w-full max-w-lg">
-    <h3 class="text-lg font-bold mb-4">Room Details</h3>
+            <!-- Due Payments Section (Owner Only) -->
+            <div class="bg-white rounded-lg shadow p-6 mb-8 owner-only">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Due Payments</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Room No.</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid Amount</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Due Amount</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="duePaymentsTable" class="bg-white divide-y divide-gray-200">
+                            <!-- Due payments will be listed here -->
+                        </tbody>
+                    </table>
+                    <div id="noDuePayments" class="text-center py-4 text-gray-500">
+                        No due payments
+                    </div>
+                </div>
+            </div>
 
-    <form id="roomForm" class="space-y-3">
-      <input type="hidden" id="roomId">
+            <!-- Room Grid -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-6">Room Status</h2>
+                <div id="roomGrid" class="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-7 gap-4">
+                    <!-- Rooms will be dynamically generated here -->
+                </div>
+            </div>
+        </main>
+    </div>
 
-      <!-- 🔑 ROOM NAME (OWNER ONLY) -->
-      <div>
-        <label class="block text-sm font-medium">Room Name</label>
-        <input id="roomName" class="w-full px-3 py-2 border rounded" placeholder="e.g. Deluxe 101">
-      </div>
+    <!-- Room Detail Modal -->
+    <div id="roomModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold text-gray-800">Room Details</h3>
+                    <button onclick="closeModal()" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
 
-      <div>
-        <label>Status</label>
-        <select id="roomStatus" class="w-full px-3 py-2 border rounded">
-          <option value="available">Available</option>
-          <option value="occupied">Occupied</option>
-          <option value="maintenance">Maintenance</option>
-        </select>
-      </div>
+                <form id="roomForm" class="space-y-4">
+                    <input type="hidden" id="roomId">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Room Name (Owner-only control) -->
+                        <div id="roomNameWrapper" style="display:none;">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Room Name</label>
+                            <input type="text" id="roomName" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Custom room name (Owner only)">
+                        </div>
 
-      <div>
-        <label>Price</label>
-        <input id="roomPrice" type="number" class="w-full px-3 py-2 border rounded">
-      </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Room Status</label>
+                            <select id="roomStatus" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="available">Available</option>
+                                <option value="occupied">Occupied</option>
+                                <option value="maintenance">Maintenance</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Room Price (₹/day)</label>
+                            <input type="number" id="roomPrice" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Enter room price" min="0">
+                        </div>
+                    </div>
 
-      <button class="w-full bg-blue-600 text-white py-2 rounded">Save</button>
-    </form>
-  </div>
-</div>
+                    <div id="customerDetails" class="space-y-4">
+                        <div class="bg-blue-50 p-4 rounded-lg mb-4">
+                            <p class="text-sm font-medium text-blue-800 mb-2">
+                                <i class="fas fa-info-circle mr-2"></i>Customer Recognition
+                            </p>
+                            <p id="customerRecognition" class="text-sm text-blue-700">
+                                Enter Aadhar number to check if customer exists in our database
+                            </p>
+                        </div>
 
-<script src="/socket.io/socket.io.js"></script>
-<script src="script.js"></script>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Customer Name</label>
+                                <input type="text" id="customerName" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Enter customer name">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Aadhar Card Number</label>
+                                <input type="text" id="aadharNumber" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Enter Aadhar number" maxlength="12" pattern="[0-9]{12}">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Number of Persons</label>
+                                <input type="number" id="numberOfPersons" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Enter number of persons" min="1">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+                                <input type="text" id="phoneNumber" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Enter phone number">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Check-in Time</label>
+                                <input type="datetime-local" id="checkinTime" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Check-out Time</label>
+                                <input type="datetime-local" id="checkoutTime" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Payment Mode</label>
+                            <select id="paymentMode" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">Select payment mode</option>
+                                <option value="UPI">UPI</option>
+                                <option value="cash">Cash</option>
+                            </select>
+                        </div>
+
+                        <div id="paymentDetails" class="space-y-4">
+                            <div class="bg-gray-50 p-4 rounded-lg">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-sm font-medium text-gray-700">Total Amount:</span>
+                                    <span id="totalAmount" class="text-sm font-bold text-gray-900">₹0</span>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-sm font-medium text-gray-700">Paid Amount:</span>
+                                    <input type="number" id="paidAmount" class="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="0" min="0">
+                                </div>
+                                <div class="flex justify-between items-center mt-2 pt-2 border-t border-gray-200">
+                                    <span class="text-sm font-medium text-gray-700">Due Amount:</span>
+                                    <span id="dueAmount" class="text-sm font-bold text-red-600">₹0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Customer History Section -->
+                    <div id="customerHistorySection" class="hidden">
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4">Customer History</h4>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Room</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check-in</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check-out</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="customerHistoryTable" class="bg-white divide-y divide-gray-200">
+                                    <!-- Customer history will be listed here -->
+                                </tbody>
+                            </table>
+                            <div id="noCustomerHistory" class="text-center py-4 text-gray-500">
+                                No previous bookings found
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex space-x-4 pt-4">
+                        <button type="submit" class="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-200 font-medium">
+                            <i class="fas fa-save mr-2"></i>Save Changes
+                        </button>
+                        <button type="button" onclick="closeModal()" class="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition duration-200 font-medium">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Payment Modal (Owner Only) -->
+    <div id="paymentModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50 owner-only">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold text-gray-800">Update Payment</h3>
+                    <button onclick="closePaymentModal()" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+
+                <form id="paymentForm" class="space-y-4">
+                    <input type="hidden" id="paymentRoomId">
+                    
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-sm font-medium text-gray-700">Room:</span>
+                            <span id="paymentRoomNumber" class="text-sm font-bold text-gray-900">-</span>
+                        </div>
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-sm font-medium text-gray-700">Customer:</span>
+                            <span id="paymentCustomerName" class="text-sm font-bold text-gray-900">-</span>
+                        </div>
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-sm font-medium text-gray-700">Total Amount:</span>
+                            <span id="paymentTotalAmount" class="text-sm font-bold text-gray-900">₹0</span>
+                        </div>
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-sm font-medium text-gray-700">Already Paid:</span>
+                            <span id="paymentAlreadyPaid" class="text-sm font-bold text-gray-900">₹0</span>
+                        </div>
+                        <div class="flex justify-between items-center pt-2 border-t border-gray-200">
+                            <span class="text-sm font-medium text-gray-700">Due Amount:</span>
+                            <span id="paymentDueAmount" class="text-sm font-bold text-red-600">₹0</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Additional Payment Amount</label>
+                        <input type="number" id="additionalPayment" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Enter additional payment amount" min="0">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Payment Mode</label>
+                        <select id="additionalPaymentMode" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <option value="">Select payment mode</option>
+                            <option value="UPI">UPI</option>
+                            <option value="cash">Cash</option>
+                        </select>
+                    </div>
+
+                    <div class="flex space-x-4 pt-4">
+                        <button type="submit" class="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-200 font-medium">
+                            <i class="fas fa-save mr-2"></i>Update Payment
+                        </button>
+                        <button type="button" onclick="closePaymentModal()" class="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition duration-200 font-medium">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- All Customers Modal (Owner Only) -->
+    <div id="allCustomersModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50 owner-only">
+        <div class="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold text-gray-800">All Customers</h3>
+                    <button onclick="closeAllCustomersModal()" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+
+                <div class="mb-4">
+                    <div class="relative">
+                        <input type="text" id="customerSearch" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Search customers by name or Aadhar...">
+                        <div class="absolute inset-y-0 right-0 flex items-center pr-3">
+                            <i class="fas fa-search text-gray-400"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aadhar</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Bookings</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Visit</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="allCustomersTable" class="bg-white divide-y divide-gray-200">
+                            <!-- Customers will be listed here -->
+                        </tbody>
+                    </table>
+                    <div id="noCustomersFound" class="text-center py-4 text-gray-500 hidden">
+                        No customers found
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal (Owner Only) -->
+    <div id="confirmModal" class="hidden confirm-modal">
+        <div class="confirm-content">
+            <h3 class="text-lg font-bold mb-4">Confirm Action</h3>
+            <p id="confirmMessage" class="mb-6">Are you sure you want to perform this action?</p>
+            <div class="flex space-x-4">
+                <button id="confirmYes" class="flex-1 bg-red-500 text-white py-2 px-4 rounded-lg hover:bg-red-600 transition duration-200 font-medium">
+                    Yes
+                </button>
+                <button id="confirmNo" class="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition duration-200 font-medium">
+                    No
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- App script -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
