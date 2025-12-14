@@ -28,8 +28,8 @@ const TOKEN_EXPIRES_IN = '8h'; // adjust as needed
 
 // Simple in-memory user list for demo. Change as needed or load from env/db.
 const USERS = {
-  owner: { password: 'owner123', role: 'Owner' },
-  manager: { password: 'manager123', role: 'Manager' }
+  owner: { password: 'msn2021$', role: 'Owner' },
+  manager: { password: 'badal25', role: 'Manager' }
 };
 
 // Middleware
