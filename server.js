@@ -1,5 +1,6 @@
 // server.js - Render / Cyclic / Fly / local ready
 // Simple file-backed hotel backend with JWT + Socket.IO
+// Updated: ensure room name/price persist reliably across restarts (atomic writes + defaults)
 
 const fs = require('fs');
 const path = require('path');
@@ -40,25 +41,87 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static frontend files from project root
 app.use(express.static(path.join(__dirname, '/')));
 
-// Utility: read/write data.json safely
-function readData() {
-  try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error('Error reading data.json, returning default structure.', e);
-    // default structure (keeps compatibility)
-    return { rooms: [], payments: { cash:0, upi:0, dayRevenue:0, monthRevenue:0 }, customers: [], notifications: [] };
-  }
+// Utility: ensure rooms have sensible defaults (name, numeric price)
+function ensureRoomDefaults(data) {
+  if (!data.rooms || !Array.isArray(data.rooms)) data.rooms = [];
+  data.rooms = data.rooms.map((r, idx) => {
+    const id = Number(r.id) || idx + 1;
+    const room = Object.assign({}, r);
+    room.id = id;
+    // preserve existing name, otherwise default to "Room <id>"
+    room.name = room.name || `Room ${id}`;
+    // ensure price is a number and not missing
+    room.price = Number(room.price) || 1500;
+    // Ensure numeric amounts exist
+    room.totalAmount = Number(room.totalAmount) || 0;
+    room.paidAmount = Number(room.paidAmount) || 0;
+    room.dueAmount = Number(room.dueAmount) || 0;
+    room.numberOfPersons = Number(room.numberOfPersons) || 1;
+    room.status = room.status || 'available';
+    // keep other fields as-is
+    return room;
+  });
+
+  // payments default shape
+  data.payments = data.payments || { cash: 0, upi: 0, dayRevenue: 0, monthRevenue: 0 };
+  data.customers = data.customers || [];
+  data.notifications = data.notifications || [];
 }
 
+// Atomic write helper (write to temp then rename)
 function writeData(data) {
   try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+    const tmp = DATA_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(tmp, DATA_FILE);
     return true;
   } catch (e) {
     console.error('Error writing data.json', e);
     return false;
+  }
+}
+
+// Utility: read/write data.json safely
+function readData() {
+  try {
+    const raw = fs.readFileSync(DATA_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    ensureRoomDefaults(data);
+    return data;
+  } catch (e) {
+    console.error('Error reading data.json, returning default structure.', e);
+    // default structure (keeps compatibility)
+    const defaultData = {
+      rooms: Array.from({ length: 29 }, (_, i) => ({
+        id: i + 1,
+        name: `Room ${i + 1}`,
+        status: "available",
+        price: 1500,
+        customerName: "",
+        numberOfPersons: 1,
+        aadharNumber: "",
+        phoneNumber: "",
+        checkinTime: "",
+        checkoutTime: "",
+        paymentMode: "",
+        totalAmount: 0,
+        paidAmount: 0,
+        dueAmount: 0
+      })),
+      payments: { cash: 0, upi: 0, dayRevenue: 0, monthRevenue: 0 },
+      customers: [],
+      notifications: []
+    };
+
+    // If file missing or malformed, try to create a valid data.json so changes persist across restarts
+    try {
+      writeData(defaultData);
+      console.info('Created default data.json');
+    } catch (writeErr) {
+      console.warn('Could not create default data.json', writeErr);
+    }
+
+    return defaultData;
   }
 }
 
@@ -105,6 +168,8 @@ app.post('/api/login', (req, res) => {
 // Get all rooms (authenticated)
 app.get('/api/rooms', authMiddleware, (req, res) => {
   const data = readData();
+  // Ensure every room has a name/price before sending
+  ensureRoomDefaults(data);
   return res.json(data.rooms || []);
 });
 
@@ -121,9 +186,28 @@ app.put('/api/rooms/:id', authMiddleware, (req, res) => {
 
   // Basic sanitation: only accept fields we expect
   const allowed = ['name','status','price','customerName','numberOfPersons','aadharNumber','phoneNumber','checkinTime','checkoutTime','paymentMode','totalAmount','paidAmount','dueAmount'];
-  allowed.forEach(k => { if (k in payload) data.rooms[idx][k] = payload[k]; });
+  allowed.forEach(k => {
+    if (k in payload) {
+      // coerce numeric fields to Number
+      if (['price','numberOfPersons','totalAmount','paidAmount','dueAmount'].includes(k)) {
+        data.rooms[idx][k] = Number(payload[k]) || 0;
+      } else {
+        data.rooms[idx][k] = payload[k];
+      }
+    }
+  });
 
-  writeData(data);
+  // Ensure defaults for updated room
+  data.rooms[idx].name = data.rooms[idx].name || `Room ${data.rooms[idx].id}`;
+  data.rooms[idx].price = Number(data.rooms[idx].price) || 1500;
+
+  const ok = writeData(data);
+  if (!ok) {
+    console.warn('Failed to persist room update to disk — changes will be lost on restart');
+    // still broadcast in-memory state so connected clients see updates
+    io.emit('roomsUpdated', data.rooms);
+    return res.status(500).json({ ok: false, error: 'Failed to persist data' });
+  }
 
   // Broadcast roomsUpdated
   io.emit('roomsUpdated', data.rooms);
@@ -176,7 +260,15 @@ app.post('/api/payments', authMiddleware, (req, res) => {
     }
   }
 
-  writeData(data);
+  const ok = writeData(data);
+  if (!ok) {
+    console.warn('Failed to persist payment to disk — changes will be lost on restart');
+    io.emit('paymentsUpdated', data.payments);
+    io.emit('roomsUpdated', data.rooms || []);
+    io.emit('notificationsUpdated', data.notifications || []);
+    return res.status(500).json({ ok: false, error: 'Failed to persist data' });
+  }
+
   io.emit('paymentsUpdated', data.payments);
   io.emit('roomsUpdated', data.rooms || []);
   io.emit('notificationsUpdated', data.notifications || []);
@@ -202,7 +294,12 @@ app.post('/api/customers', authMiddleware, (req, res) => {
   const customer = { id, ...payload, createdAt: new Date().toISOString() };
   data.customers.push(customer);
 
-  writeData(data);
+  const ok = writeData(data);
+  if (!ok) {
+    io.emit('customersUpdated', data.customers);
+    return res.status(500).json({ ok: false, error: 'Failed to persist data' });
+  }
+
   io.emit('customersUpdated', data.customers);
   return res.json({ ok: true, customer });
 });
@@ -217,7 +314,11 @@ app.get('/api/notifications', authMiddleware, (req, res) => {
 app.delete('/api/notifications', authMiddleware, requireRole('Owner'), (req, res) => {
   const data = readData();
   data.notifications = [];
-  writeData(data);
+  const ok = writeData(data);
+  if (!ok) {
+    io.emit('notificationsUpdated', data.notifications);
+    return res.status(500).json({ ok: false, error: 'Failed to persist data' });
+  }
   io.emit('notificationsUpdated', data.notifications);
   return res.json({ ok: true });
 });
