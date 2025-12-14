@@ -1,7 +1,8 @@
 /* ---------------------------------------------------
-   UPDATED SCRIPT.JS
-   Prevent non-Owner sessions from overwriting Owner-only fields (name, price)
-   and merge incoming socket updates without clobbering local Owner edits.
+   script.js - Full client script
+   - Uses explicit ROOM_NUMBER_MAP and default prices provided
+   - Preserves Owner-only fields (name, price) on non-Owner sessions
+   - Merges server updates safely to avoid clobbering local Owner edits
 --------------------------------------------------- */
 
 const API_BASE = "https://srinikamalnkb.onrender.com";
@@ -66,8 +67,6 @@ function connectSocket() {
     auth: { token: getToken() },
   });
 
-  // When server emits roomsUpdated, merge carefully:
-  // - If current session is NOT Owner, preserve local name/price to avoid accidental overwrites.
   socket.on("roomsUpdated", (r) => {
     if (!Array.isArray(r)) return;
 
@@ -82,7 +81,6 @@ function connectSocket() {
     // For non-Owner sessions (Manager / anonymous), merge per-room preserving local owner fields.
     const merged = (r || []).map((srvRoom) => {
       const local = (rooms || []).find((lr) => lr.id === srvRoom.id) || {};
-      // preserve local.name/local.price if present (likely Owner set them previously in this browser)
       return {
         ...srvRoom,
         name: local.name || srvRoom.name || `Room ${srvRoom.id}`,
@@ -125,6 +123,52 @@ let rooms = [],
   customersDB = [],
   notifications = [];
 
+/* Room number mapping and default price logic (explicit mapping provided) */
+const ROOM_NUMBER_MAP = {
+  1: 102,
+  2: 103,
+  3: 104,
+  4: 105,
+  5: 106,
+  6: 201,
+  7: 202,
+  8: 203,
+  9: 204,
+  10: 205,
+  11: 206,
+  12: 207,
+  13: 208,
+  14: 301,
+  15: 302,
+  16: 303,
+  17: 304,
+  18: 305,
+  19: 306,
+  20: 307,
+  21: 308,
+  22: 401,
+  23: 402,
+  24: 403,
+  25: 404,
+  26: 405,
+  27: 406,
+  28: 407,
+  29: 408
+};
+
+function getDefaultPriceForRoomNumber(roomNumber) {
+  const price350 = new Set([
+    102,103,104,105,106,
+    201,202,203,204,205,206,207,
+    301,302,303,304,305,306,307,
+    401,402,403,404,405,406,407
+  ]);
+  const price500 = new Set([208, 308, 408]);
+  if (price350.has(roomNumber)) return 350;
+  if (price500.has(roomNumber)) return 500;
+  return 1500;
+}
+
 function loadLocal() {
   try {
     rooms = JSON.parse(localStorage.getItem("hotelRooms") || "[]");
@@ -160,24 +204,28 @@ function saveLocal() {
 
 loadLocal();
 
-/* Initialize rooms if empty */
+/* Initialize rooms if empty using explicit mapping and prices */
 if (!rooms.length) {
-  rooms = Array.from({ length: 29 }, (_, i) => ({
-    id: i + 1,
-    name: `Room ${i + 1}`,
-    status: "available",
-    price: 1500,
-    customerName: "",
-    numberOfPersons: 1,
-    aadharNumber: "",
-    phoneNumber: "",
-    checkinTime: "",
-    checkoutTime: "",
-    paymentMode: "",
-    totalAmount: 0,
-    paidAmount: 0,
-    dueAmount: 0,
-  }));
+  rooms = Array.from({ length: 29 }, (_, i) => {
+    const id = i + 1;
+    const mappedNumber = ROOM_NUMBER_MAP[id] || (100 + id);
+    return {
+      id,
+      name: String(mappedNumber),
+      status: "available",
+      price: getDefaultPriceForRoomNumber(mappedNumber),
+      customerName: "",
+      numberOfPersons: 1,
+      aadharNumber: "",
+      phoneNumber: "",
+      checkinTime: "",
+      checkoutTime: "",
+      paymentMode: "",
+      totalAmount: 0,
+      paidAmount: 0,
+      dueAmount: 0,
+    };
+  });
   saveLocal();
 }
 
@@ -257,22 +305,20 @@ async function loadInitialData() {
     const r = await fetchWithAuth(`${API}/rooms`);
     if (r.ok) {
       const serverRooms = await r.json();
-      // Use server values but preserve local name/price for non-Owner sessions
       if (Array.isArray(serverRooms) && serverRooms.length) {
         if (getRole() === "Owner") {
           rooms = serverRooms.map((sr) => ({ name: sr.name || `Room ${sr.id}`, ...sr }));
         } else {
           rooms = serverRooms.map((sr) => {
             const local = (rooms || []).find((lr) => lr.id === sr.id) || {};
+            const mappedNumber = ROOM_NUMBER_MAP[sr.id] || (100 + sr.id);
             return {
-              name: local.name || sr.name || `Room ${sr.id}`,
-              price: typeof local.price !== "undefined" ? local.price : (sr.price || 1500),
+              name: local.name || sr.name || String(mappedNumber),
+              price: typeof local.price !== "undefined" ? local.price : (sr.price || getDefaultPriceForRoomNumber(mappedNumber)),
               ...sr,
             };
           });
         }
-      } else {
-        // no server rooms -> leave local
       }
     }
   } catch {}
@@ -587,14 +633,9 @@ document
     let paidAmount =
       Number(document.getElementById("paidAmount")?.value) || 0;
 
-    /* -------------------------------
-       UPDATED: Persist the difference to server as a payment record
-       ------------------------------- */
-
     // If room is being released (not occupied), we clear the customer/payment inputs for the room,
     // and avoid posting any payment changes. The customer DB remains untouched.
     if (status !== "occupied") {
-      // force clear values so we don't accidentally post or keep previous paid amounts
       customerName = "";
       numberOfPersons = 1;
       aadharNumber = "";
@@ -606,13 +647,11 @@ document
     let newPaid = paidAmount;
     let addedAmount = newPaid - previousPaid;
 
-    // prevent posting when releasing the room (we cleared paidAmount above)
     if (status !== "occupied") {
       addedAmount = 0;
     }
 
     if (addedAmount > 0) {
-      // Try to POST the added payment to the server so data.json is updated
       try {
         const resp = await fetchWithAuth(`${API}/payments`, {
           method: "POST",
@@ -621,10 +660,8 @@ document
 
         if (resp.ok) {
           const j = await resp.json();
-          // server returns payments totals (data.payments)
           if (j && j.payments) payments = j.payments;
         } else {
-          // server rejected the payment; fallback to local totals
           payments.cash = payments.cash || 0;
           payments.upi = payments.upi || 0;
           payments.dayRevenue = payments.dayRevenue || 0;
@@ -637,7 +674,6 @@ document
           payments.monthRevenue += addedAmount;
         }
       } catch (err) {
-        // network error: keep local totals
         payments.cash = payments.cash || 0;
         payments.upi = payments.upi || 0;
         payments.dayRevenue = payments.dayRevenue || 0;
@@ -650,10 +686,6 @@ document
         payments.monthRevenue += addedAmount;
       }
     }
-
-    /* -------------------------------
-       END PAYMENT PERSISTENCE
-       ------------------------------- */
 
     let totalAmount = 0;
 
@@ -674,7 +706,6 @@ document
 
     const updatedRoom = {
       ...rooms[idx],
-      // update name only (persist) if owner; otherwise preserve existing name
       name: roomNameToSave,
       status,
       price,
@@ -690,7 +721,6 @@ document
       dueAmount,
     };
 
-    // IMPORTANT: if the room is not occupied, ensure all customer-related fields are explicitly cleared
     if (status !== "occupied") {
       updatedRoom.customerName = "";
       updatedRoom.numberOfPersons = 1;
@@ -705,7 +735,6 @@ document
     }
 
     /* ---------------- CUSTOMER DB ---------------- */
-    // Only add/update customer DB when room is occupied with an Aadhar.
     if (status === "occupied" && aadharNumber) {
       let c = customersDB.find((x) => x.aadhar === aadharNumber);
 
@@ -755,20 +784,16 @@ document
 
       if (!response.ok) throw new Error("Server failed");
 
-      // Merge server-acknowledged changes into local model.
-      // If response contains room, use that; otherwise fallback to our updatedRoom.
       const respJson = await response.json().catch(() => null);
       const serverRoom = respJson && respJson.room ? respJson.room : null;
 
-      // Keep owner-only fields locally if we're non-owner (preserve them)
       if (getRole() === "Owner") {
         rooms[idx] = serverRoom || updatedRoom;
       } else {
-        // merge but preserve local name/price
         rooms[idx] = {
           ...(serverRoom || updatedRoom),
-          name: rooms[idx].name || (serverRoom && serverRoom.name) || updatedRoom.name,
-          price: typeof rooms[idx].price !== "undefined" ? rooms[idx].price : (serverRoom && serverRoom.price) || updatedRoom.price,
+          name: rooms[idx].name || ((serverRoom && serverRoom.name) || updatedRoom.name),
+          price: typeof rooms[idx].price !== "undefined" ? rooms[idx].price : ((serverRoom && serverRoom.price) || updatedRoom.price),
         };
       }
 
@@ -778,7 +803,6 @@ document
       document.getElementById("roomModal")?.classList.add("hidden");
       showNotification("Room updated", "success");
     } catch (err) {
-      // Best-effort: persist locally even if server is offline
       rooms[idx] = updatedRoom;
       saveLocal();
       applyDataToUI();
@@ -796,7 +820,6 @@ function openPaymentModal(roomId) {
   const room = rooms.find((r) => r.id === roomId);
   if (!room) return;
 
-  // use hidden input to keep reference
   const paymentRoomInput = document.getElementById("paymentRoomId");
   if (paymentRoomInput) paymentRoomInput.value = room.id;
 
@@ -871,7 +894,6 @@ document
         const j = await resp.json();
         if (j && j.payments) payments = j.payments;
       } else {
-        // fallback to local totals if server rejects
         payments.cash = payments.cash || 0;
         payments.upi = payments.upi || 0;
         payments.dayRevenue = payments.dayRevenue || 0;
@@ -884,7 +906,6 @@ document
         payments.monthRevenue += paymentAmount;
       }
     } catch (err) {
-      // network error: keep local totals
       payments.cash = payments.cash || 0;
       payments.upi = payments.upi || 0;
       payments.dayRevenue = payments.dayRevenue || 0;
@@ -897,12 +918,10 @@ document
       payments.monthRevenue += paymentAmount;
     }
 
-    /* --------- SAVE LOCALLY & TRY TO SAVE ROOM --------- */
     saveLocal();
     applyDataToUI();
 
     // PUT the room to server (best-effort)
-    // Ensure non-Owners don't send name/price
     try {
       const payload = { ...rooms[idx] };
       if (getRole() !== "Owner") {
@@ -948,7 +967,7 @@ function loadNotifications() {
 
     div.innerHTML = `
       <p>${escapeHtml(n.message)}</p>
-      <small class="text-gray-400">${new Date(n.time).toLocaleString()}</small>
+      <small class="text-gray-400">${new Date(n.timestamp || n.time || Date.now()).toLocaleString()}</small>
     `;
 
     div.onclick = () => {
@@ -1031,7 +1050,7 @@ function viewCustomerDetails(roomId) {
   const historyBox = document.getElementById("custHistory");
   historyBox.innerHTML = "";
 
-  customer.history.forEach((h) => {
+  (customer.history || []).forEach((h) => {
     const div = document.createElement("div");
     div.className = "p-2 bg-gray-800 rounded mb-2";
 
@@ -1164,7 +1183,7 @@ document.getElementById("logoutBtn")?.addEventListener("click", logout);
 
 /* ---------------- ESCAPE HTML ---------------- */
 function escapeHtml(s) {
-  if (!s) return "";
+  if (s === null || s === undefined) return "";
   return s
     .toString()
     .replace(/[&<>"']/g, function (m) {
@@ -1237,6 +1256,46 @@ if (!payments || typeof payments !== "object") {
     monthRevenue: 0,
   };
   saveLocal();
+}
+
+/* ---------------- Small toast implementation for showNotification ---------------- */
+function showNotification(msg, type = "info", timeout = 3000) {
+  try {
+    const containerId = "hk-toast-container";
+    let container = document.getElementById(containerId);
+    if (!container) {
+      container = document.createElement("div");
+      container.id = containerId;
+      container.style.position = "fixed";
+      container.style.right = "20px";
+      container.style.top = "20px";
+      container.style.zIndex = 99999;
+      document.body.appendChild(container);
+    }
+    const el = document.createElement("div");
+    el.textContent = msg;
+    el.style.marginTop = "8px";
+    el.style.padding = "10px 14px";
+    el.style.borderRadius = "6px";
+    el.style.color = "#fff";
+    el.style.minWidth = "160px";
+    el.style.boxShadow = "0 6px 18px rgba(0,0,0,0.12)";
+    if (type === "error") {
+      el.style.background = "#ef4444";
+    } else if (type === "success") {
+      el.style.background = "#10b981";
+    } else {
+      el.style.background = "#1f2937";
+    }
+    container.appendChild(el);
+    setTimeout(() => {
+      el.style.opacity = "0";
+      setTimeout(() => el.remove(), 300);
+    }, timeout);
+  } catch (e) {
+    // fallback
+    console.log(type, msg);
+  }
 }
 
 /* ---------------- END OF SCRIPT.JS ---------------- */
