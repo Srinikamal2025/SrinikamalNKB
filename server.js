@@ -5,6 +5,7 @@ const http = require('http');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
+const PDFDocument = require('pdfkit');
 
 const app = express();
 const server = http.createServer(app);
@@ -336,6 +337,76 @@ app.get('/api/customers', authMiddleware, requireRole('Owner'), (req, res) => {
 app.get('/api/checkout-records', authMiddleware, requireRole('Owner'), (req, res) => {
   const data = readData();
   return res.json(data.checkoutRecords || []);
+});
+
+// Export PDF Reports
+app.get('/api/export/:type', authMiddleware, requireRole('Owner'), (req, res) => {
+  const { type } = req.params;
+  const data = readData();
+  
+  const doc = new PDFDocument({ margin: 50 });
+  const filename = `${type}-report-${Date.now()}.pdf`;
+  
+  // Set headers to trigger a file download in the browser
+  res.setHeader('Content-disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-type', 'application/pdf');
+  
+  doc.pipe(res);
+  
+  // Standard Report Header
+  doc.fontSize(20).text('Srini Kamal Residency', { align: 'center' });
+  doc.moveDown(0.5);
+  doc.fontSize(14).text(`Report: ${type.toUpperCase()}`, { align: 'center' });
+  doc.fontSize(10).text(`Generated on: ${new Date().toLocaleString()}`, { align: 'center' });
+  doc.moveDown(2);
+  doc.fontSize(12);
+
+  // Generate content based on the requested type
+  if (type === 'customers') {
+    doc.fontSize(14).text('Current Guests (Occupied Rooms)', { underline: true });
+    doc.moveDown();
+    const occupied = data.rooms.filter(r => r.status === 'occupied');
+    
+    if (occupied.length === 0) {
+      doc.text('No current guests.');
+    } else {
+      occupied.forEach(r => {
+        doc.text(`Room ${r.name}: ${r.customerName}`);
+        doc.fontSize(10).text(`Phone: ${r.phoneNumber} | Aadhar: ${r.aadharNumber} | Check-in: ${new Date(r.checkinTime).toLocaleString()}`);
+        doc.moveDown(0.5);
+        doc.fontSize(12);
+      });
+    }
+  } else if (type === 'balances') {
+    doc.fontSize(14).text('Outstanding Room Balances', { underline: true });
+    doc.moveDown();
+    const dueRooms = data.rooms.filter(r => r.balance > 0);
+    
+    if (dueRooms.length === 0) {
+      doc.text('No outstanding balances. All clear!');
+    } else {
+      let totalDue = 0;
+      dueRooms.forEach(r => {
+        totalDue += r.balance;
+        doc.text(`Room ${r.name} (${r.customerName}): Rs. ${r.balance}`);
+        doc.moveDown(0.5);
+      });
+      doc.moveDown();
+      doc.font('Helvetica-Bold').text(`Total Outstanding: Rs. ${totalDue}`);
+    }
+  } else if (type === 'daily') {
+    doc.fontSize(14).text('Daily Revenue Report', { underline: true });
+    doc.moveDown();
+    doc.text(`Total Daily Revenue: Rs. ${data.payments.dayRevenue || 0}`);
+  } else if (type === 'monthly') {
+    doc.fontSize(14).text('Monthly Revenue Report', { underline: true });
+    doc.moveDown();
+    doc.text(`Total Monthly Revenue: Rs. ${data.payments.monthRevenue || 0}`);
+  } else {
+    doc.text('Invalid report type requested.');
+  }
+  
+  doc.end();
 });
 
 app.get('/health', (req, res) => res.json({ ok: true, now: new Date().toISOString() }));
