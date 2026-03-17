@@ -19,7 +19,12 @@ const io = new Server(server, {
 const DATA_FILE = path.join(__dirname, 'data.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_in_production';
 const TOKEN_EXPIRES_IN = '8h';
-const SINGLE_PASSCODE = '1234'; // Single passcode for both Manager and Owner
+
+// User credentials mapping
+const USERS = {
+  'nkb': { role: 'Owner', passcode: '2021' },
+  'm2026': { role: 'Manager', passcode: '1234' }
+};
 
 // Room mapping
 const ROOM_NUMBER_MAP = {
@@ -151,15 +156,18 @@ function requireRole(role) {
   };
 }
 
-// LOGIN - Single Passcode
+// LOGIN - Username and Passcode
 app.post('/api/login', (req, res) => {
-  const { role, passcode } = req.body || {};
-  if (!role || !passcode) return res.status(400).json({ error: 'role & passcode required' });
+  const { username, passcode } = req.body || {};
+  if (!username || !passcode) return res.status(400).json({ error: 'username & passcode required' });
 
-  if (passcode !== SINGLE_PASSCODE) return res.status(401).json({ error: 'Invalid passcode' });
+  const user = USERS[username.toLowerCase()]; // Case-insensitive username check
+  if (!user || String(user.passcode) !== String(passcode)) {
+      return res.status(401).json({ error: 'Invalid username or passcode' });
+  }
 
-  const token = createToken(role);
-  return res.json({ token, role });
+  const token = createToken(user.role);
+  return res.json({ token, role: user.role });
 });
 
 // Get rooms
