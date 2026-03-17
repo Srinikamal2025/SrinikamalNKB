@@ -231,9 +231,38 @@ function closePDFModal() {
   document.getElementById('pdfModal').classList.add('hidden');
 }
 
-function exportPDF(type) {
-  alert('PDF export for ' + type + ' (Implement PDF generation)');
-  closePDFModal();
+// Updated PDF export logic
+async function exportPDF(type) {
+  try {
+    const res = await fetch(`${API}/export/${type}`, {
+      method: 'GET',
+      headers: authHeader() // Includes the required Bearer token
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || 'Failed to generate PDF');
+    }
+
+    // Convert the response to a Blob
+    const blob = await res.blob();
+    
+    // Create a temporary, invisible link to trigger the download
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}-report.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    
+    // Cleanup
+    a.remove();
+    window.URL.revokeObjectURL(url);
+    closePDFModal();
+    
+  } catch (err) {
+    alert('Error generating PDF: ' + err.message);
+  }
 }
 
 function openShiftModal() {
