@@ -9,20 +9,20 @@ let payments = {};
 // LOGIN
 document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const role = document.getElementById('role')?.value;
+  const username = document.getElementById('username')?.value; // Changed from role to username
   const passcode = document.getElementById('passcode')?.value;
 
   try {
     const res = await fetch(`${API}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role, passcode })
+      body: JSON.stringify({ username, passcode }) // Send username instead of role
     });
 
     const data = await res.json();
     if (res.ok) {
       authToken = data.token;
-      userRole = data.role;
+      userRole = data.role; // Set the role based on what the server returns
       localStorage.setItem('authToken', authToken);
       localStorage.setItem('userRole', userRole);
       showDashboard();
