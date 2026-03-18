@@ -3,7 +3,7 @@
 // ==========================================
 
 // 🛑 REPLACE THIS WITH YOUR REAL SHEETDB LINK 🛑
-const SHEET_API_URL = 'https://sheetdb.io/api/v1/YOUR_UNIQUE_ID_HERE';
+const SHEET_API_URL = 'https://sheetdb.io/api/v1/kgyt3gjbywfsn';
 
 // --- GLOBAL VARIABLES ---
 let allBookings = [];
