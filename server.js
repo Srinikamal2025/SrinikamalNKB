@@ -61,7 +61,6 @@ function ensureRoomDefaults(data) {
     room.status = room.status || 'available';
     room.rent = Number(room.rent) || 0;
     room.advance = Number(room.advance) || 0;
-    room.balance = Number(room.balance) || 0;
     room.customerName = room.customerName || '';
     room.aadharNumber = room.aadharNumber || '';
     room.phoneNumber = room.phoneNumber || '';
@@ -71,7 +70,7 @@ function ensureRoomDefaults(data) {
     return room;
   });
 
-  data.payments = data.payments || { dayRevenue: 0, monthRevenue: 0, balance: 0 };
+  data.payments = data.payments || { dayRevenue: 0, monthRevenue: 0 };
   data.customers = data.customers || [];
   data.checkoutRecords = data.checkoutRecords || [];
 }
@@ -95,41 +94,35 @@ function readData() {
     ensureRoomDefaults(data);
     return data;
   } catch (e) {
-    console.error('Error reading data.json, returning default structure.', e);
-    const defaultRooms = Array.from({ length: 29 }, (_, i) => {
-      const id = i + 1;
-      const mappedNumber = ROOM_NUMBER_MAP[id] || (100 + id);
-      return {
-        id,
-        name: String(mappedNumber),
-        status: 'available',
-        price: getDefaultPriceForRoomNumber(mappedNumber),
-        rent: 0,
-        advance: 0,
-        balance: 0,
-        customerName: '',
-        aadharNumber: '',
-        phoneNumber: '',
-        numberOfPersons: 1,
-        checkinTime: '',
-        checkoutTime: ''
-      };
-    });
-
     const defaultData = {
-      rooms: defaultRooms,
-      payments: { dayRevenue: 0, monthRevenue: 0, balance: 0 },
+      rooms: Array.from({ length: 29 }, (_, i) => ({ id: i + 1 })),
+      payments: { dayRevenue: 0, monthRevenue: 0 },
       customers: [],
       checkoutRecords: []
     };
-
-    try {
-      writeData(defaultData);
-    } catch (writeErr) {
-      console.warn('Could not create default data.json', writeErr);
-    }
+    ensureRoomDefaults(defaultData);
+    writeData(defaultData);
     return defaultData;
   }
+}
+
+// Helper function to dynamically calculate balance based on actual days stayed
+function getRoomBalance(room) {
+  if (room.status !== 'occupied' || !room.checkinTime) return 0;
+  const checkin = new Date(room.checkinTime);
+  const now = new Date();
+  
+  // Calculate days stayed (minimum 1 day)
+  let days = Math.ceil((now.getTime() - checkin.getTime()) / (1000 * 60 * 60 * 24));
+  if (days < 1) days = 1;
+  
+  const totalRent = room.rent * days;
+  return totalRent - room.advance; 
+}
+
+// Inject live balances into rooms before sending to frontend
+function getDynamicRooms(data) {
+  return (data.rooms || []).map(r => ({ ...r, balance: getRoomBalance(r) }));
 }
 
 function createToken(role) {
@@ -157,12 +150,11 @@ function requireRole(role) {
   };
 }
 
-// LOGIN - Username and Passcode
 app.post('/api/login', (req, res) => {
   const { username, passcode } = req.body || {};
   if (!username || !passcode) return res.status(400).json({ error: 'username & passcode required' });
 
-  const user = USERS[username.toLowerCase()]; // Case-insensitive username check
+  const user = USERS[username.toLowerCase()]; 
   if (!user || String(user.passcode) !== String(passcode)) {
       return res.status(401).json({ error: 'Invalid username or passcode' });
   }
@@ -171,55 +163,59 @@ app.post('/api/login', (req, res) => {
   return res.json({ token, role: user.role });
 });
 
-// Get rooms
 app.get('/api/rooms', authMiddleware, (req, res) => {
   const data = readData();
-  return res.json(data.rooms || []);
+  return res.json(getDynamicRooms(data));
 });
 
-// Update room
+// Update room (Check-in)
 app.put('/api/rooms/:id', authMiddleware, (req, res) => {
   const roomId = parseInt(req.params.id);
-  if (Number.isNaN(roomId)) return res.status(400).json({ error: 'Invalid room id' });
-
   const payload = req.body || {};
   const data = readData();
-  const idx = (data.rooms || []).findIndex(r => r.id === roomId);
+  const idx = data.rooms.findIndex(r => r.id === roomId);
   if (idx === -1) return res.status(404).json({ error: 'Room not found' });
 
-  const allowed = ['status', 'rent', 'advance', 'balance', 'customerName', 'aadharNumber', 'phoneNumber', 'numberOfPersons', 'checkinTime', 'checkoutTime'];
+  // Detect if this is a fresh check-in to apply advance to revenue immediately
+  const isNewCheckin = payload.status === 'occupied' && data.rooms[idx].status === 'available';
+
+  const allowed = ['status', 'rent', 'advance', 'customerName', 'aadharNumber', 'phoneNumber', 'numberOfPersons', 'checkinTime'];
   allowed.forEach(k => {
     if (k in payload) {
-      if (['rent', 'advance', 'balance', 'numberOfPersons'].includes(k)) {
-        data.rooms[idx][k] = Number(payload[k]) || 0;
-      } else {
-        data.rooms[idx][k] = payload[k];
-      }
+      if (['rent', 'advance', 'numberOfPersons'].includes(k)) data.rooms[idx][k] = Number(payload[k]) || 0;
+      else data.rooms[idx][k] = payload[k];
     }
   });
 
-  const ok = writeData(data);
-  if (!ok) {
-    io.emit('roomsUpdated', data.rooms);
-    return res.status(500).json({ ok: false, error: 'Failed to persist data' });
+  // Add initial advance to revenue
+  if (isNewCheckin) {
+    data.payments.dayRevenue = (data.payments.dayRevenue || 0) + data.rooms[idx].advance;
+    data.payments.monthRevenue = (data.payments.monthRevenue || 0) + data.rooms[idx].advance;
   }
 
-  io.emit('roomsUpdated', data.rooms);
-  return res.json({ ok: true, room: data.rooms[idx] });
+  const ok = writeData(data);
+  const dynamicRooms = getDynamicRooms(data);
+  io.emit('roomsUpdated', dynamicRooms);
+  io.emit('paymentsUpdated', data.payments);
+  
+  if (!ok) return res.status(500).json({ ok: false, error: 'Failed to persist data' });
+  return res.json({ ok: true, room: dynamicRooms[idx] });
 });
 
 // Checkout room
 app.post('/api/checkout/:id', authMiddleware, requireRole('Owner'), (req, res) => {
   const roomId = parseInt(req.params.id);
   const data = readData();
-  const idx = (data.rooms || []).findIndex(r => r.id === roomId);
+  const idx = data.rooms.findIndex(r => r.id === roomId);
   if (idx === -1) return res.status(404).json({ error: 'Room not found' });
 
   const room = data.rooms[idx];
-  if (room.balance > 0) return res.status(400).json({ error: 'Cannot checkout: Balance pending' });
+  const liveBalance = getRoomBalance(room);
+  
+  if (liveBalance > 0) return res.status(400).json({ error: `Cannot checkout: Balance pending (₹${liveBalance})` });
 
   const checkoutTime = new Date().toISOString();
-  const checkoutRecord = {
+  data.checkoutRecords.push({
     roomNumber: room.name,
     customerName: room.customerName,
     aadharNumber: room.aadharNumber,
@@ -228,21 +224,14 @@ app.post('/api/checkout/:id', authMiddleware, requireRole('Owner'), (req, res) =
     checkoutTime: checkoutTime,
     rent: room.rent,
     advance: room.advance
-  };
+  });
 
-  data.checkoutRecords = data.checkoutRecords || [];
-  data.checkoutRecords.push(checkoutRecord);
-
-  // Update revenue
-  data.payments.dayRevenue = (data.payments.dayRevenue || 0) + (room.advance + (room.rent * Math.ceil((new Date(checkoutTime) - new Date(room.checkinTime)) / (1000 * 60 * 60 * 24))));
-  data.payments.monthRevenue = (data.payments.monthRevenue || 0) + (room.advance + (room.rent * Math.ceil((new Date(checkoutTime) - new Date(room.checkinTime)) / (1000 * 60 * 60 * 24))));
-
+  // Reset room
   data.rooms[idx] = {
     ...room,
     status: 'available',
     rent: 0,
     advance: 0,
-    balance: 0,
     customerName: '',
     aadharNumber: '',
     phoneNumber: '',
@@ -251,46 +240,40 @@ app.post('/api/checkout/:id', authMiddleware, requireRole('Owner'), (req, res) =
     checkoutTime: ''
   };
 
-  const ok = writeData(data);
-  if (!ok) {
-    io.emit('roomsUpdated', data.rooms);
-    return res.status(500).json({ ok: false, error: 'Failed to persist data' });
-  }
-
-  io.emit('roomsUpdated', data.rooms);
-  return res.json({ ok: true, checkoutRecord });
+  writeData(data);
+  io.emit('roomsUpdated', getDynamicRooms(data));
+  return res.json({ ok: true });
 });
 
-// Add sub-payment
+// Add sub-payment (Adds to advance and revenue immediately)
 app.post('/api/payment', authMiddleware, (req, res) => {
   const { roomId, amount } = req.body || {};
   const data = readData();
-  const idx = (data.rooms || []).findIndex(r => r.id === Number(roomId));
+  const idx = data.rooms.findIndex(r => r.id === Number(roomId));
   if (idx === -1) return res.status(404).json({ error: 'Room not found' });
 
-  const room = data.rooms[idx];
-  room.balance = Math.max(0, (room.balance || 0) - Number(amount));
+  // Subpayments add directly to the total advance paid
+  data.rooms[idx].advance = (data.rooms[idx].advance || 0) + Number(amount);
 
+  // Instantly apply to revenue
   data.payments.dayRevenue = (data.payments.dayRevenue || 0) + Number(amount);
   data.payments.monthRevenue = (data.payments.monthRevenue || 0) + Number(amount);
 
-  const ok = writeData(data);
-  if (!ok) {
-    io.emit('roomsUpdated', data.rooms);
-    return res.status(500).json({ ok: false, error: 'Failed to persist data' });
-  }
-
-  io.emit('roomsUpdated', data.rooms);
-  return res.json({ ok: true, newBalance: room.balance });
+  writeData(data);
+  
+  const dynamicRooms = getDynamicRooms(data);
+  io.emit('roomsUpdated', dynamicRooms);
+  io.emit('paymentsUpdated', data.payments);
+  
+  return res.json({ ok: true, newBalance: dynamicRooms[idx].balance });
 });
 
-// Shift room
 app.post('/api/shift-room', authMiddleware, requireRole('Owner'), (req, res) => {
   const { fromRoomId, toRoomId } = req.body || {};
   const data = readData();
 
-  const fromIdx = (data.rooms || []).findIndex(r => r.id === Number(fromRoomId));
-  const toIdx = (data.rooms || []).findIndex(r => r.id === Number(toRoomId));
+  const fromIdx = data.rooms.findIndex(r => r.id === Number(fromRoomId));
+  const toIdx = data.rooms.findIndex(r => r.id === Number(toRoomId));
 
   if (fromIdx === -1 || toIdx === -1) return res.status(404).json({ error: 'Room not found' });
   if (data.rooms[toIdx].status !== 'available') return res.status(400).json({ error: 'Destination room not available' });
@@ -298,148 +281,106 @@ app.post('/api/shift-room', authMiddleware, requireRole('Owner'), (req, res) => 
   const fromRoom = data.rooms[fromIdx];
   data.rooms[toIdx] = { ...fromRoom, id: toRoomId, name: data.rooms[toIdx].name };
   data.rooms[fromIdx] = {
-    ...data.rooms[fromIdx],
-    status: 'available',
-    rent: 0,
-    advance: 0,
-    balance: 0,
-    customerName: '',
-    aadharNumber: '',
-    phoneNumber: '',
-    numberOfPersons: 1,
-    checkinTime: '',
-    checkoutTime: ''
+    ...data.rooms[fromIdx], status: 'available', rent: 0, advance: 0, customerName: '', aadharNumber: '', phoneNumber: '', numberOfPersons: 1, checkinTime: '', checkoutTime: ''
   };
 
-  const ok = writeData(data);
-  if (!ok) {
-    io.emit('roomsUpdated', data.rooms);
-    return res.status(500).json({ ok: false, error: 'Failed to persist data' });
-  }
-
-  io.emit('roomsUpdated', data.rooms);
+  writeData(data);
+  io.emit('roomsUpdated', getDynamicRooms(data));
   return res.json({ ok: true });
 });
 
-// Get payments
 app.get('/api/payments', authMiddleware, requireRole('Owner'), (req, res) => {
-  const data = readData();
-  return res.json(data.payments || {});
+  return res.json(readData().payments || {});
 });
 
-// Get customers
-app.get('/api/customers', authMiddleware, requireRole('Owner'), (req, res) => {
-  const data = readData();
-  return res.json(data.customers || []);
-});
-
-// Get checkout records
-app.get('/api/checkout-records', authMiddleware, requireRole('Owner'), (req, res) => {
-  const data = readData();
-  return res.json(data.checkoutRecords || []);
-});
-
-// Export PDF Reports
-app.get('/api/export/:type', authMiddleware, requireRole('Owner'), (req, res) => {
+// Export PDF Reports (Manager can export Customers, Owner can export all)
+app.get('/api/export/:type', authMiddleware, (req, res) => {
   const { type } = req.params;
-  const data = readData();
   
+  // Security Check
+  if (type !== 'customers' && req.user.role !== 'Owner') {
+      return res.status(403).json({ error: 'Forbidden: Owners only' });
+  }
+
+  const data = readData();
   const doc = new PDFDocument({ margin: 50 });
   const filename = `${type}-report-${Date.now()}.pdf`;
   
-  // Set headers to trigger a file download in the browser
   res.setHeader('Content-disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-type', 'application/pdf');
   
   doc.pipe(res);
   
-  // Standard Report Header
-  doc.fontSize(20).text('Srini Kamal Residency', { align: 'center' });
-  doc.moveDown(0.5);
+  doc.fontSize(20).text('Srini Kamal Residency', { align: 'center' }).moveDown(0.5);
   doc.fontSize(14).text(`Report: ${type.toUpperCase()}`, { align: 'center' });
-  doc.fontSize(10).text(`Generated on: ${new Date().toLocaleString()}`, { align: 'center' });
-  doc.moveDown(2);
+  doc.fontSize(10).text(`Generated on: ${new Date().toLocaleString()}`, { align: 'center' }).moveDown(2);
   doc.fontSize(12);
 
-  // Generate content based on the requested type
   if (type === 'customers') {
-    doc.fontSize(14).text('Current Guests (Occupied Rooms)', { underline: true });
-    doc.moveDown();
+    doc.fontSize(14).text('Current Guests (Occupied Rooms)', { underline: true }).moveDown();
     const occupied = data.rooms.filter(r => r.status === 'occupied');
     
-    if (occupied.length === 0) {
-      doc.text('No current guests.');
-    } else {
+    if (occupied.length === 0) doc.text('No current guests.');
+    else {
       occupied.forEach(r => {
         doc.text(`Room ${r.name}: ${r.customerName}`);
-        doc.fontSize(10).text(`Phone: ${r.phoneNumber} | Aadhar: ${r.aadharNumber} | Check-in: ${new Date(r.checkinTime).toLocaleString()}`);
-        doc.moveDown(0.5);
+        doc.fontSize(10).text(`Phone: ${r.phoneNumber} | Aadhar: ${r.aadharNumber} | Check-in: ${new Date(r.checkinTime).toLocaleString()}`).moveDown(0.5);
         doc.fontSize(12);
       });
     }
-  } else if (type === 'balances') {
-    doc.fontSize(14).text('Outstanding Room Balances', { underline: true });
-    doc.moveDown();
-    const dueRooms = data.rooms.filter(r => r.balance > 0);
+
+    // Now include past checked-out customers
+    doc.moveDown(2);
+    doc.fontSize(14).text('Past Guests (Checked Out)', { underline: true }).moveDown();
+    const past = data.checkoutRecords || [];
     
-    if (dueRooms.length === 0) {
-      doc.text('No outstanding balances. All clear!');
-    } else {
+    if (past.length === 0) doc.text('No past guest records found.');
+    else {
+      past.forEach(r => {
+        doc.text(`Room ${r.roomNumber}: ${r.customerName}`);
+        doc.fontSize(10).text(`Phone: ${r.phoneNumber} | Aadhar: ${r.aadharNumber} | Check-in: ${new Date(r.checkinTime).toLocaleString()} | Check-out: ${new Date(r.checkoutTime).toLocaleString()}`).moveDown(0.5);
+        doc.fontSize(12);
+      });
+    }
+
+  } else if (type === 'balances') {
+    doc.fontSize(14).text('Outstanding Room Balances', { underline: true }).moveDown();
+    const dueRooms = getDynamicRooms(data).filter(r => r.balance > 0);
+    
+    if (dueRooms.length === 0) doc.text('No outstanding balances. All clear!');
+    else {
       let totalDue = 0;
       dueRooms.forEach(r => {
         totalDue += r.balance;
-        doc.text(`Room ${r.name} (${r.customerName}): Rs. ${r.balance}`);
-        doc.moveDown(0.5);
+        doc.text(`Room ${r.name} (${r.customerName}): Rs. ${r.balance}`).moveDown(0.5);
       });
-      doc.moveDown();
-      doc.font('Helvetica-Bold').text(`Total Outstanding: Rs. ${totalDue}`);
+      doc.moveDown().font('Helvetica-Bold').text(`Total Outstanding: Rs. ${totalDue}`);
     }
   } else if (type === 'daily') {
-    doc.fontSize(14).text('Daily Revenue Report', { underline: true });
-    doc.moveDown();
+    doc.fontSize(14).text('Daily Revenue Report', { underline: true }).moveDown();
     doc.text(`Total Daily Revenue: Rs. ${data.payments.dayRevenue || 0}`);
   } else if (type === 'monthly') {
-    doc.fontSize(14).text('Monthly Revenue Report', { underline: true });
-    doc.moveDown();
+    doc.fontSize(14).text('Monthly Revenue Report', { underline: true }).moveDown();
     doc.text(`Total Monthly Revenue: Rs. ${data.payments.monthRevenue || 0}`);
-  } else {
-    doc.text('Invalid report type requested.');
   }
   
   doc.end();
-});
-
-app.get('/health', (req, res) => res.json({ ok: true, now: new Date().toISOString() }));
-
-app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, 'index.html');
-  if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
-  return res.status(404).send('Not found');
 });
 
 io.use((socket, next) => {
   const token = socket.handshake.auth && socket.handshake.auth.token;
   if (!token) return next();
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    socket.user = payload;
+    socket.user = jwt.verify(token, JWT_SECRET);
     return next();
-  } catch (e) {
-    return next();
-  }
+  } catch (e) { return next(); }
 });
 
 io.on('connection', (socket) => {
   const data = readData();
-  socket.emit('roomsUpdated', data.rooms || []);
+  socket.emit('roomsUpdated', getDynamicRooms(data));
   socket.emit('paymentsUpdated', data.payments || {});
-
-  socket.on('disconnect', () => {
-    console.log('Socket disconnected', socket.id);
-  });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
