@@ -57,37 +57,25 @@
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                 <div class="bg-white rounded-lg shadow p-6">
                     <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-gray-600 text-sm">Total Rooms</p>
-                            <p class="text-2xl font-bold text-gray-800">29</p>
-                        </div>
+                        <div><p class="text-gray-600 text-sm">Total Rooms</p><p class="text-2xl font-bold text-gray-800">29</p></div>
                         <i class="fas fa-door-open text-3xl text-blue-500"></i>
                     </div>
                 </div>
                 <div class="bg-white rounded-lg shadow p-6">
                     <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-gray-600 text-sm">Available</p>
-                            <p class="text-2xl font-bold text-green-600" id="availableCount">0</p>
-                        </div>
+                        <div><p class="text-gray-600 text-sm">Available</p><p class="text-2xl font-bold text-green-600" id="availableCount">0</p></div>
                         <i class="fas fa-check-circle text-3xl text-green-500"></i>
                     </div>
                 </div>
                 <div class="bg-white rounded-lg shadow p-6">
                     <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-gray-600 text-sm">Occupied</p>
-                            <p class="text-2xl font-bold text-red-600" id="occupiedCount">0</p>
-                        </div>
+                        <div><p class="text-gray-600 text-sm">Occupied</p><p class="text-2xl font-bold text-red-600" id="occupiedCount">0</p></div>
                         <i class="fas fa-user-friends text-3xl text-red-500"></i>
                     </div>
                 </div>
                 <div class="bg-white rounded-lg shadow p-6">
                     <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-gray-600 text-sm">Maintenance</p>
-                            <p class="text-2xl font-bold text-yellow-600" id="maintenanceCount">0</p>
-                        </div>
+                        <div><p class="text-gray-600 text-sm">Maintenance</p><p class="text-2xl font-bold text-yellow-600" id="maintenanceCount">0</p></div>
                         <i class="fas fa-tools text-3xl text-yellow-500"></i>
                     </div>
                 </div>
@@ -96,46 +84,36 @@
             <div id="ownerPanel" class="hidden grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                 <div class="bg-gradient-to-r from-green-400 to-green-600 rounded-lg shadow p-6 text-white">
                     <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm opacity-90">Daily Revenue</p>
-                            <p class="text-3xl font-bold" id="dayRevenue">₹0</p>
-                        </div>
+                        <div><p class="text-sm opacity-90">Daily Revenue</p><p class="text-3xl font-bold" id="dayRevenue">₹0</p></div>
                         <i class="fas fa-calendar-day text-3xl opacity-50"></i>
                     </div>
                 </div>
                 <div class="bg-gradient-to-r from-blue-400 to-blue-600 rounded-lg shadow p-6 text-white">
                     <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm opacity-90">Monthly Revenue</p>
-                            <p class="text-3xl font-bold" id="monthRevenue">₹0</p>
-                        </div>
+                        <div><p class="text-sm opacity-90">Monthly Revenue</p><p class="text-3xl font-bold" id="monthRevenue">₹0</p></div>
                         <i class="fas fa-calendar-alt text-3xl opacity-50"></i>
                     </div>
                 </div>
                 <div class="bg-gradient-to-r from-red-400 to-red-600 rounded-lg shadow p-6 text-white">
                     <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm opacity-90">Outstanding Balance</p>
-                            <p class="text-3xl font-bold" id="totalBalance">₹0</p>
-                        </div>
+                        <div><p class="text-sm opacity-90">Outstanding Balance</p><p class="text-3xl font-bold" id="totalBalance">₹0</p></div>
                         <i class="fas fa-exclamation-triangle text-3xl opacity-50"></i>
                     </div>
                 </div>
             </div>
 
-            <div id="ownerActions" class="hidden mb-8 flex gap-4">
+            <div id="dashboardActions" class="hidden mb-8 flex gap-4">
                 <button onclick="openPDFModal()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition flex items-center gap-2">
                     <i class="fas fa-download"></i>Export PDF Report
                 </button>
-                <button onclick="openShiftModal()" class="bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 transition flex items-center gap-2">
+                <button id="shiftRoomBtn" onclick="openShiftModal()" class="bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 transition flex items-center gap-2">
                     <i class="fas fa-exchange-alt"></i>Shift Room
                 </button>
             </div>
 
             <div class="bg-white rounded-lg shadow p-6">
                 <h2 class="text-xl font-bold text-gray-800 mb-6">Room Status</h2>
-                <div id="roomGrid" class="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-7 gap-4">
-                    </div>
+                <div id="roomGrid" class="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-7 gap-4"></div>
             </div>
         </main>
     </div>
@@ -144,129 +122,56 @@
         <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div class="p-6">
                 <input type="hidden" id="roomId">
-                
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="text-xl font-bold text-gray-800">Room Details</h3>
-                    <button onclick="closeRoomModal()" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times text-xl"></i>
-                    </button>
+                    <button onclick="closeRoomModal()" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-xl"></i></button>
                 </div>
 
                 <div id="checkinForm" class="space-y-4">
                     <h4 class="font-semibold text-lg text-gray-800 mb-4">Manager Check-in Form</h4>
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Daily Rent (₹)</label>
-                            <input type="number" id="rent" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="0" min="0" required>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Advance Amount (₹)</label>
-                            <input type="number" id="advance" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="0" min="0" required>
-                        </div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-2">Daily Rent (₹)</label><input type="number" id="rent" class="w-full px-4 py-2 border rounded-lg" required></div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-2">Advance Amount (₹)</label><input type="number" id="advance" class="w-full px-4 py-2 border rounded-lg" required></div>
                     </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Customer Name</label>
-                        <input type="text" id="customerName" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Enter full name" required>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Aadhar Card Number</label>
-                        <input type="text" id="aadharNumber" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="12-digit Aadhar" maxlength="12" pattern="[0-9]{12}" required>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Check-in Date & Time</label>
-                        <input type="datetime-local" id="checkinTime" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" required>
-                    </div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-2">Customer Name</label><input type="text" id="customerName" class="w-full px-4 py-2 border rounded-lg" required></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-2">Aadhar Card Number</label><input type="text" id="aadharNumber" class="w-full px-4 py-2 border rounded-lg" required></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-2">Check-in Date & Time</label><input type="datetime-local" id="checkinTime" class="w-full px-4 py-2 border rounded-lg" required></div>
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Number of People</label>
-                            <input type="number" id="numberOfPersons" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="1" min="1" required>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
-                            <input type="tel" id="phoneNumber" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="+91" required>
-                        </div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-2">Number of People</label><input type="number" id="numberOfPersons" class="w-full px-4 py-2 border rounded-lg" required></div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-2">Phone Number</label><input type="tel" id="phoneNumber" class="w-full px-4 py-2 border rounded-lg" required></div>
                     </div>
-                    <button type="button" onclick="checkIn()" class="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition duration-200 font-medium text-lg">
-                        <i class="fas fa-check mr-2"></i>Check-in
-                    </button>
+                    <button type="button" onclick="checkIn()" class="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700">Check-in</button>
                 </div>
 
                 <div id="occupiedInfo" class="hidden space-y-4">
                     <h4 class="font-semibold text-lg text-gray-800 mb-4">Occupied Room</h4>
                     <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
                         <p class="text-sm mb-2"><strong>Customer Name:</strong> <span id="dispCustomer" class="text-gray-700">-</span></p>
-                        <p class="text-sm"><strong>Due Amount:</strong> <span id="dispDue" class="text-red-600 font-bold text-lg">₹0</span></p>
+                        <p class="text-sm"><strong>Total Paid (Advance):</strong> <span id="dispAdvance" class="text-green-600 font-bold">₹0</span></p>
+                        <p class="text-sm mt-2"><strong>Live Due Amount:</strong> <span id="dispDue" class="text-red-600 font-bold text-lg">₹0</span></p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Sub-Payment Amount (₹)</label>
-                        <input type="number" id="subPayment" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="0" min="0">
+                        <input type="number" id="subPayment" class="w-full px-4 py-2 border rounded-lg">
                     </div>
-                    <button type="button" onclick="addPayment()" class="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition duration-200 font-medium">
-                        <i class="fas fa-plus mr-2"></i>Add Sub-Payment
-                    </button>
-                    <button type="button" id="checkoutBtn" onclick="checkout()" disabled class="w-full bg-red-600 text-white py-3 px-4 rounded-lg hover:bg-red-700 transition duration-200 font-medium text-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                        <i class="fas fa-door-open mr-2"></i>Checkout (Balance must be ₹0)
-                    </button>
+                    <button type="button" onclick="addPayment()" class="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700">Add Sub-Payment</button>
+                    <button type="button" id="checkoutBtn" onclick="checkout()" class="w-full bg-red-600 text-white py-3 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50">Checkout</button>
                 </div>
             </div>
         </div>
     </div>
 
     <div id="pdfModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div class="p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-xl font-bold text-gray-800">Export PDF Reports</h3>
-                    <button onclick="closePDFModal()" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <div class="space-y-3">
-                    <button onclick="exportPDF('customers')" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition flex items-center gap-2">
-                        <i class="fas fa-users"></i>Customer Database
-                    </button>
-                    <button onclick="exportPDF('balances')" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition flex items-center gap-2">
-                        <i class="fas fa-door-open"></i>Room Balances
-                    </button>
-                    <button onclick="exportPDF('daily')" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition flex items-center gap-2">
-                        <i class="fas fa-calendar-day"></i>Daily Revenue
-                    </button>
-                    <button onclick="exportPDF('monthly')" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition flex items-center gap-2">
-                        <i class="fas fa-calendar-alt"></i>Monthly Revenue
-                    </button>
-                    <button onclick="closePDFModal()" class="w-full bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition">
-                        Close
-                    </button>
-                </div>
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-gray-800">Export PDF Reports</h3>
+                <button onclick="closePDFModal()" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
             </div>
-        </div>
-    </div>
-
-    <div id="shiftModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div class="p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-xl font-bold text-gray-800">Shift Room</h3>
-                    <button onclick="closeShiftModal()" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">From Room (Occupied)</label>
-                        <select id="fromRoom" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">To Room (Available)</label>
-                        <select id="toRoom" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></select>
-                    </div>
-                    <button onclick="shiftRoom()" class="w-full bg-orange-600 text-white py-2 px-4 rounded-lg hover:bg-orange-700 transition duration-200 font-medium">
-                        <i class="fas fa-exchange-alt mr-2"></i>Shift Room
-                    </button>
-                    <button onclick="closeShiftModal()" class="w-full bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition">
-                        Close
-                    </button>
-                </div>
+            <div class="space-y-3">
+                <button onclick="exportPDF('customers')" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"><i class="fas fa-users"></i>Customer Database</button>
+                <button id="pdfBtnBalances" onclick="exportPDF('balances')" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"><i class="fas fa-door-open"></i>Room Balances</button>
+                <button id="pdfBtnDaily" onclick="exportPDF('daily')" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"><i class="fas fa-calendar-day"></i>Daily Revenue</button>
+                <button id="pdfBtnMonthly" onclick="exportPDF('monthly')" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"><i class="fas fa-calendar-alt"></i>Monthly Revenue</button>
             </div>
         </div>
     </div>
