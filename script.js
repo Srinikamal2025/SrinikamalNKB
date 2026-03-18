@@ -1,3 +1,4 @@
+alert("Hello! The JavaScript file is connected!");
 // ==========================================
 // FINAL HOTEL DASHBOARD SCRIPT
 // ==========================================
