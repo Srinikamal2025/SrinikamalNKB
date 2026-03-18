@@ -6,32 +6,27 @@ let userRole = localStorage.getItem('userRole');
 let rooms = [];
 let payments = {};
 
-// LOGIN
 document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const username = document.getElementById('username')?.value; // Changed from role to username
+  const username = document.getElementById('username')?.value; 
   const passcode = document.getElementById('passcode')?.value;
 
   try {
     const res = await fetch(`${API}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, passcode }) // Send username instead of role
+      body: JSON.stringify({ username, passcode })
     });
 
     const data = await res.json();
     if (res.ok) {
       authToken = data.token;
-      userRole = data.role; // Set the role based on what the server returns
+      userRole = data.role; 
       localStorage.setItem('authToken', authToken);
       localStorage.setItem('userRole', userRole);
       showDashboard();
-    } else {
-      alert(data.error || 'Login failed');
-    }
-  } catch (err) {
-    alert('Server error: ' + err.message);
-  }
+    } else alert(data.error || 'Login failed');
+  } catch (err) { alert('Server error: ' + err.message); }
 });
 
 function authHeader() {
@@ -42,10 +37,21 @@ function showDashboard() {
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('dashboardScreen').classList.remove('hidden');
   document.getElementById('userRole').textContent = userRole;
+  document.getElementById('dashboardActions').classList.remove('hidden');
 
   if (userRole === 'Owner') {
     document.getElementById('ownerPanel').classList.remove('hidden');
-    document.getElementById('ownerActions').classList.remove('hidden');
+    document.getElementById('shiftRoomBtn').classList.remove('hidden');
+    document.getElementById('pdfBtnBalances').classList.remove('hidden');
+    document.getElementById('pdfBtnDaily').classList.remove('hidden');
+    document.getElementById('pdfBtnMonthly').classList.remove('hidden');
+  } else {
+    // Hide Owner-exclusive features from Manager
+    document.getElementById('ownerPanel').classList.add('hidden');
+    document.getElementById('shiftRoomBtn').classList.add('hidden');
+    document.getElementById('pdfBtnBalances').classList.add('hidden');
+    document.getElementById('pdfBtnDaily').classList.add('hidden');
+    document.getElementById('pdfBtnMonthly').classList.add('hidden');
   }
 
   loadRooms();
@@ -58,9 +64,7 @@ async function loadRooms() {
     renderRooms();
     updateStats();
     if (userRole === 'Owner') loadPayments();
-  } catch (err) {
-    console.error(err);
-  }
+  } catch (err) { console.error(err); }
 }
 
 async function loadPayments() {
@@ -69,10 +73,8 @@ async function loadPayments() {
     payments = await res.json();
     document.getElementById('dayRevenue').textContent = '₹' + (payments.dayRevenue || 0);
     document.getElementById('monthRevenue').textContent = '₹' + (payments.monthRevenue || 0);
-    document.getElementById('totalBalance').textContent = '₹' + (rooms.reduce((sum, r) => sum + (r.balance || 0), 0));
-  } catch (err) {
-    console.error(err);
-  }
+    document.getElementById('totalBalance').textContent = '₹' + (rooms.reduce((sum, r) => sum + (r.balance > 0 ? r.balance : 0), 0));
+  } catch (err) { console.error(err); }
 }
 
 function renderRooms() {
@@ -120,6 +122,7 @@ function openRoomModal(roomId) {
     document.getElementById('checkinForm').classList.add('hidden');
     document.getElementById('occupiedInfo').classList.remove('hidden');
     document.getElementById('dispCustomer').textContent = room.customerName || '-';
+    document.getElementById('dispAdvance').textContent = '₹' + (room.advance || 0);
     document.getElementById('dispDue').textContent = '₹' + (room.balance || 0);
     document.getElementById('subPayment').value = '';
     document.getElementById('checkoutBtn').disabled = room.balance > 0;
@@ -138,8 +141,8 @@ async function checkIn() {
   const numberOfPersons = Number(document.getElementById('numberOfPersons').value);
   const phoneNumber = document.getElementById('phoneNumber').value;
 
-  if (!rent || !advance || !customerName || !aadharNumber || !checkinTime || !phoneNumber) {
-    alert('All fields required');
+  if (!rent || !customerName || !aadharNumber || !checkinTime || !phoneNumber) {
+    alert('All required fields must be filled');
     return;
   }
 
@@ -148,15 +151,7 @@ async function checkIn() {
       method: 'PUT',
       headers: authHeader(),
       body: JSON.stringify({
-        status: 'occupied',
-        rent,
-        advance,
-        balance: rent - advance,
-        customerName,
-        aadharNumber,
-        phoneNumber,
-        numberOfPersons,
-        checkinTime
+        status: 'occupied', rent, advance, customerName, aadharNumber, phoneNumber, numberOfPersons, checkinTime
       })
     });
 
@@ -164,22 +159,15 @@ async function checkIn() {
       alert('Check-in successful');
       closeRoomModal();
       loadRooms();
-    } else {
-      alert('Check-in failed');
-    }
-  } catch (err) {
-    alert('Error: ' + err.message);
-  }
+    } else alert('Check-in failed');
+  } catch (err) { alert('Error: ' + err.message); }
 }
 
 async function addPayment() {
   const roomId = Number(document.getElementById('roomId').value);
   const amount = Number(document.getElementById('subPayment').value);
 
-  if (!amount) {
-    alert('Enter payment amount');
-    return;
-  }
+  if (!amount) { alert('Enter payment amount'); return; }
 
   try {
     const res = await fetch(`${API}/payment`, {
@@ -193,9 +181,7 @@ async function addPayment() {
       loadRooms();
       openRoomModal(roomId);
     }
-  } catch (err) {
-    alert('Error: ' + err.message);
-  }
+  } catch (err) { alert('Error: ' + err.message); }
 }
 
 async function checkout() {
@@ -203,117 +189,45 @@ async function checkout() {
   const room = rooms.find(r => r.id === roomId);
 
   if (room.balance > 0) {
-    alert('Balance must be ₹0 to checkout');
+    alert(`Cannot checkout. Pending balance of ₹${room.balance}`);
     return;
   }
 
   try {
-    const res = await fetch(`${API}/checkout/${roomId}`, {
-      method: 'POST',
-      headers: authHeader()
-    });
-
+    const res = await fetch(`${API}/checkout/${roomId}`, { method: 'POST', headers: authHeader() });
     if (res.ok) {
       alert('Checkout successful');
       closeRoomModal();
       loadRooms();
+    } else {
+        const errData = await res.json();
+        alert('Error: ' + errData.error);
     }
-  } catch (err) {
-    alert('Error: ' + err.message);
-  }
+  } catch (err) { alert('Error: ' + err.message); }
 }
 
-function openPDFModal() {
-  document.getElementById('pdfModal').classList.remove('hidden');
-}
+function openPDFModal() { document.getElementById('pdfModal').classList.remove('hidden'); }
+function closePDFModal() { document.getElementById('pdfModal').classList.add('hidden'); }
 
-function closePDFModal() {
-  document.getElementById('pdfModal').classList.add('hidden');
-}
-
-// Updated PDF export logic
 async function exportPDF(type) {
   try {
-    const res = await fetch(`${API}/export/${type}`, {
-      method: 'GET',
-      headers: authHeader() // Includes the required Bearer token
-    });
+    const res = await fetch(`${API}/export/${type}`, { method: 'GET', headers: authHeader() });
+    if (!res.ok) throw new Error((await res.json()).error || 'Failed to generate PDF');
 
-    if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(errorData.error || 'Failed to generate PDF');
-    }
-
-    // Convert the response to a Blob
     const blob = await res.blob();
-    
-    // Create a temporary, invisible link to trigger the download
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `${type}-report.pdf`;
     document.body.appendChild(a);
     a.click();
-    
-    // Cleanup
     a.remove();
     window.URL.revokeObjectURL(url);
     closePDFModal();
-    
-  } catch (err) {
-    alert('Error generating PDF: ' + err.message);
-  }
+  } catch (err) { alert('Error: ' + err.message); }
 }
 
-function openShiftModal() {
-  document.getElementById('shiftModal').classList.remove('hidden');
-  const occupiedRooms = rooms.filter(r => r.status === 'occupied').map(r => `<option value="${r.id}">${r.name}</option>`).join('');
-  const availableRooms = rooms.filter(r => r.status === 'available').map(r => `<option value="${r.id}">${r.name}</option>`).join('');
-  document.getElementById('fromRoom').innerHTML = occupiedRooms;
-  document.getElementById('toRoom').innerHTML = availableRooms;
-}
+function closeRoomModal() { document.getElementById('roomModal').classList.add('hidden'); }
+function logout() { localStorage.removeItem('authToken'); localStorage.removeItem('userRole'); location.reload(); }
 
-function closeShiftModal() {
-  document.getElementById('shiftModal').classList.add('hidden');
-}
-
-async function shiftRoom() {
-  const fromRoomId = Number(document.getElementById('fromRoom').value);
-  const toRoomId = Number(document.getElementById('toRoom').value);
-
-  if (!fromRoomId || !toRoomId) {
-    alert('Select both rooms');
-    return;
-  }
-
-  try {
-    const res = await fetch(`${API}/shift-room`, {
-      method: 'POST',
-      headers: authHeader(),
-      body: JSON.stringify({ fromRoomId, toRoomId })
-    });
-
-    if (res.ok) {
-      alert('Room shifted successfully');
-      closeShiftModal();
-      loadRooms();
-    }
-  } catch (err) {
-    alert('Error: ' + err.message);
-  }
-}
-
-function closeRoomModal() {
-  document.getElementById('roomModal').classList.add('hidden');
-}
-
-function logout() {
-  localStorage.removeItem('authToken');
-  localStorage.removeItem('userRole');
-  location.reload();
-}
-
-// Auto-login
-if (authToken && userRole) {
-  showDashboard();
-}
+if (authToken && userRole) showDashboard();
